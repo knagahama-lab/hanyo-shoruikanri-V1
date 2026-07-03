@@ -59,6 +59,7 @@ window.addEventListener('load', () => {
   if (typeof loadMatchingCandidates === 'function') loadMatchingCandidates();
   if (typeof loadOcrUsage === 'function') loadOcrUsage();
   initCustomDocTypes();
+  _initGenericDocSidebar();
   // OCRキュー: 解析中アイテムの経過時間を1秒ごとに更新
   setInterval(function(){
     const jobs = Object.values(_ocrQueue||{}).filter(j=>j.status==='ocring');
@@ -2041,6 +2042,7 @@ function loadDocTypeList() {
               ${dt.enabled ? '● 有効' : '○ 無効'}
             </span>
             <button class="btn btn-outline btn-sm" onclick="openEditDocTypeModal('${_esc(dt.id)}')">✏️ 編集</button>
+            <button class="btn btn-outline btn-sm" onclick="copyDocType('${_esc(dt.id)}')" title="この種別をコピー" style="color:#7c3aed;border-color:#7c3aed;">📋 コピー</button>
           </div>
         </div>
       `).join('');
@@ -2166,6 +2168,7 @@ function saveCurrentDocType() {
         showToast('✅ 書類種別を保存しました');
         closeDocTypeModal();
         loadDocTypeList();
+        _initGenericDocSidebar();
       } else { showToast('保存失敗: ' + (res?res.error:'不明'), true); }
     })
     .handleApiRequest('saveDocType', { docType });
@@ -2180,9 +2183,223 @@ function deleteCurrentDocType() {
         showToast('✅ 削除しました');
         closeDocTypeModal();
         loadDocTypeList();
+        _initGenericDocSidebar();
       } else { showToast('削除失敗: ' + (res?res.error:'不明'), true); }
     })
     .handleApiRequest('deleteDocType', { id: _docTypeEditId });
+}
+
+// ============================================================
+// 汎用書類管理 サイドバー & 一覧ページ
+// ============================================================
+let _genericDocTypes = [];
+let _currentGenericDocTypeId = null;
+let _genericDocItems = [];
+let _filteredGenericDocItems = [];
+let _genericDocPage = 1;
+const _genericDocLimit = 30;
+
+function _initGenericDocSidebar() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) return;
+      _genericDocTypes = (res.docTypes || []).filter(function(dt) { return dt.enabled; });
+      _rebuildGenericDocSidebar();
+    })
+    .handleApiRequest('getDocTypes', null);
+}
+
+function _rebuildGenericDocSidebar() {
+  document.querySelectorAll('.nav-item[data-gendoc]').forEach(function(el) { el.remove(); });
+  document.querySelectorAll('.sidebar-section-label[data-gendoc-section]').forEach(function(el) { el.remove(); });
+  if (_genericDocTypes.length === 0) return;
+  const nav = document.getElementById('sidebar-nav-container');
+  if (!nav) return;
+  const sectionEl = document.createElement('div');
+  sectionEl.className = 'sidebar-section-label';
+  sectionEl.setAttribute('data-gendoc-section', '1');
+  sectionEl.textContent = '書類管理';
+  nav.appendChild(sectionEl);
+  _genericDocTypes.forEach(function(dt) {
+    const item = document.createElement('div');
+    item.className = 'nav-item';
+    item.setAttribute('data-id', 'gendoc_' + dt.id);
+    item.setAttribute('data-gendoc', dt.id);
+    item.style.borderLeft = '3px solid ' + (dt.color || '#7c3aed');
+    item.onclick = function() { showGenericDocPage(dt.id); };
+    item.innerHTML =
+      '<span class="nav-item-icon">📋</span>' +
+      '<span class="nav-item-label">' + _esc(dt.name) + '</span>';
+    nav.appendChild(item);
+  });
+}
+
+function showGenericDocPage(dtId) {
+  _currentGenericDocTypeId = dtId;
+  const dt = _genericDocTypes.find(function(d) { return d.id === dtId; });
+  if (!dt) return;
+  document.querySelectorAll('.nav-item').forEach(function(el) { el.classList.remove('active'); });
+  const navItem = document.querySelector('.nav-item[data-gendoc="' + dtId + '"]');
+  if (navItem) navItem.classList.add('active');
+  const titleBar = document.getElementById('topbar-page-title');
+  if (titleBar) titleBar.textContent = dt.name + ' 一覧';
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  const page = document.getElementById('page-generic-docs');
+  if (page) { page.classList.add('active'); const ct = document.getElementById('content'); if(ct) ct.scrollTop = 0; }
+  const titleEl = document.getElementById('gdoc-title');
+  if (titleEl) { titleEl.textContent = dt.name + ' 一覧'; titleEl.style.color = dt.color || '#7c3aed'; }
+  const subEl = document.getElementById('gdoc-subtitle');
+  if (subEl) subEl.textContent = 'シート: ' + (dt.sheetName || '—') + '　OCR項目: ' + (dt.ocrFields || []).length + '個';
+  const statusSel = document.getElementById('gdoc-status-filter');
+  if (statusSel) {
+    statusSel.innerHTML = '<option value="">すべてのステータス</option>';
+    (dt.statusFlow || []).forEach(function(s) {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      statusSel.appendChild(opt);
+    });
+  }
+  loadGenericDocsData();
+}
+
+function loadGenericDocsData() {
+  if (!_currentGenericDocTypeId) return;
+  const tbody = document.getElementById('gdoc-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--text-muted);">⏳ 読み込み中...</td></tr>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('読み込み失敗: ' + (res ? res.error : ''), true); return; }
+      _genericDocItems = res.items || [];
+      if (res.docType) _buildGenericDocTableHeader(res.docType);
+      applyGenericDocsFilter();
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('getGenericDocs', { docTypeId: _currentGenericDocTypeId });
+}
+
+function _buildGenericDocTableHeader(dt) {
+  const thead = document.getElementById('gdoc-thead');
+  if (!thead) return;
+  const fields = (dt.ocrFields || []).slice(0, 9);
+  let html = '<tr><th style="width:90px;">ステータス</th>';
+  fields.forEach(function(f) { html += '<th>' + _esc(f.label) + '</th>'; });
+  html += '<th style="width:60px;text-align:center;">PDF</th></tr>';
+  thead.innerHTML = html;
+}
+
+function applyGenericDocsFilter() {
+  const q = ((document.getElementById('gdoc-search') || {}).value || '').toLowerCase();
+  const st = (document.getElementById('gdoc-status-filter') || {}).value || '';
+  _filteredGenericDocItems = _genericDocItems.filter(function(item) {
+    const vals = Object.values(item).map(function(v) { return String(v||'').toLowerCase(); }).join(' ');
+    if (q && !vals.includes(q)) return false;
+    if (st && (item['ステータス'] || '') !== st) return false;
+    return true;
+  });
+  _genericDocPage = 1;
+  _renderGenericDocsTable();
+}
+
+function _renderGenericDocsTable() {
+  const tbody = document.getElementById('gdoc-tbody');
+  const dt = _genericDocTypes.find(function(d) { return d.id === _currentGenericDocTypeId; });
+  if (!tbody || !dt) return;
+  const fields = (dt.ocrFields || []).slice(0, 9);
+  const total = _filteredGenericDocItems.length;
+  const start = (_genericDocPage - 1) * _genericDocLimit;
+  const pageItems = _filteredGenericDocItems.slice(start, start + _genericDocLimit);
+  const countEl = document.getElementById('gdoc-count');
+  if (countEl) countEl.textContent = total + ' 件';
+  if (pageItems.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="' + (fields.length + 2) + '" style="text-align:center;padding:32px;color:var(--text-muted);">データがありません</td></tr>';
+    _renderGenericDocsPagination(total); return;
+  }
+  const statusFlow = dt.statusFlow || [];
+  tbody.innerHTML = pageItems.map(function(item) {
+    const st = item['ステータス'] || '';
+    const docId = _esc(String(item['書類番号'] || item['見積番号'] || ''));
+    const stOpts = statusFlow.map(function(s) {
+      return '<option value="' + _esc(s) + '"' + (s===st?' selected':'') + '>' + _esc(s) + '</option>';
+    }).join('');
+    let html = '<tr>';
+    if (statusFlow.length > 0) {
+      html += '<td><select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;cursor:pointer;" onchange="updateGenericDocStatus(\'' + docId + '\',this.value)">' + stOpts + '</select></td>';
+    } else {
+      html += '<td><span style="font-size:11px;color:var(--text-muted);">—</span></td>';
+    }
+    fields.forEach(function(f) {
+      const v = item[f.label] !== undefined ? item[f.label] : '—';
+      html += '<td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(String(v)) + '</td>';
+    });
+    const pdfUrl = item['PDFリンク'] || item['PDF'] || '';
+    html += '<td style="text-align:center;">' + (pdfUrl ? '<a href="' + _esc(pdfUrl) + '" target="_blank" style="font-size:18px;text-decoration:none;">📄</a>' : '—') + '</td>';
+    html += '</tr>';
+    return html;
+  }).join('');
+  _renderGenericDocsPagination(total);
+}
+
+function _renderGenericDocsPagination(total) {
+  const el = document.getElementById('gdoc-pagination');
+  if (!el) return;
+  const pages = Math.ceil(total / _genericDocLimit);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 1; i <= pages; i++) {
+    html += '<button class="page-btn' + (i === _genericDocPage ? ' active' : '') + '" onclick="setGenericDocPage(' + i + ')">' + i + '</button>';
+  }
+  el.innerHTML = html;
+}
+
+function setGenericDocPage(p) { _genericDocPage = p; _renderGenericDocsTable(); }
+
+function updateGenericDocStatus(docId, status) {
+  if (!_currentGenericDocTypeId || !docId) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) showToast('✅ ステータスを更新しました');
+      else showToast('更新失敗: ' + (res ? res.error : ''), true);
+    })
+    .handleApiRequest('updateGenericDocStatus', { docTypeId: _currentGenericDocTypeId, docId: docId, status: status });
+}
+
+function exportGenericDocsCsv() {
+  if (_filteredGenericDocItems.length === 0) { showToast('エクスポートするデータがありません', true); return; }
+  const headers = Object.keys(_filteredGenericDocItems[0]);
+  const rows = [headers.join(',')].concat(_filteredGenericDocItems.map(function(item) {
+    return headers.map(function(h) { return '"' + String(item[h]||'').replace(/"/g,'""') + '"'; }).join(',');
+  }));
+  const dt = _genericDocTypes.find(function(d) { return d.id === _currentGenericDocTypeId; });
+  const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (dt ? dt.name : '書類') + '_export.csv';
+  a.click();
+}
+
+// ── 書類種別コピー ──
+function copyDocType(id) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('取得失敗', true); return; }
+      const src = (res.docTypes || []).find(function(d) { return d.id === id; });
+      if (!src) { showToast('見つかりません', true); return; }
+      const newId = id + '_copy';
+      const copy = JSON.parse(JSON.stringify(src));
+      copy.id = newId;
+      copy.name = src.name + '（コピー）';
+      copy.enabled = false;
+      google.script.run
+        .withSuccessHandler(function(r2) {
+          if (r2 && r2.success) {
+            showToast('✅ コピーしました: ' + copy.name);
+            loadDocTypeList();
+            _initGenericDocSidebar();
+          } else { showToast('保存失敗: ' + (r2 ? r2.error : ''), true); }
+        })
+        .handleApiRequest('saveDocType', { docType: copy });
+    })
+    .handleApiRequest('getDocTypes', null);
 }
 
 // ============================================================
