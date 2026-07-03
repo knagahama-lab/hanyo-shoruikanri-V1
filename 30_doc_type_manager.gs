@@ -85,27 +85,93 @@ function deleteDocType(id) {
  */
 function _getDefaultDocTypes() {
   return [
+    // ── 岐阜電子工業（実装費）──────────────────────────────
     {
-      id: 'quote_itaku',
-      name: '委託先見積書',
+      id: 'quote_gifu_denshi',
+      name: '岐阜電子工業見積書（実装費）',
       enabled: false,
       importFolderId: '',
       saveFolderId: '',
       processedFolderId: '',
-      sheetName: '委託先見積書',
-      color: '#7c3aed',
+      sheetName: '岐阜電子工業_実装費',
+      color: '#b45309',
+      supplier: '岐阜電子工業',
+      costCategory: '実装費',
       ocrFields: [
-        { key:'documentNo',  label:'書類番号',  type:'text',   required:true  },
-        { key:'issueDate',   label:'発行日',    type:'date',   required:false },
-        { key:'clientName',  label:'取引先名',  type:'text',   required:false },
-        { key:'totalAmount', label:'合計金額',  type:'number', required:false },
-        { key:'subject',     label:'件名/品名', type:'text',   required:false },
-        { key:'category',    label:'カテゴリ',  type:'select', required:false, options:['実装費','PCB','組立費','その他'] },
-        { key:'memo',        label:'備考',      type:'text',   required:false },
+        { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
+        { key:'issueDate',    label:'発行日',        type:'date',   required:false },
+        { key:'validUntil',   label:'有効期限',      type:'date',   required:false },
+        { key:'totalAmount',  label:'合計金額(税込)', type:'number', required:true  },
+        { key:'subtotal',     label:'小計(税抜)',     type:'number', required:false },
+        { key:'productName',  label:'機種名/品名',   type:'text',   required:false },
+        { key:'modelCode',    label:'機種コード',     type:'text',   required:false },
+        { key:'quantity',     label:'数量',           type:'number', required:false },
+        { key:'unitPrice',    label:'実装単価',       type:'number', required:false },
+        { key:'workType',     label:'作業種別',       type:'text',   required:false },
+        { key:'memo',         label:'備考・条件',     type:'text',   required:false },
       ],
-      statusFlow: ['未確認','確認中','承認済み','却下'],
+      statusFlow: ['未確認','確認中','承認済み','発注済み','却下'],
       autoLink: false,
     },
+    // ── イードリーム（組立費）──────────────────────────────
+    {
+      id: 'quote_edream',
+      name: 'イードリーム見積書（組立費）',
+      enabled: false,
+      importFolderId: '',
+      saveFolderId: '',
+      processedFolderId: '',
+      sheetName: 'イードリーム_組立費',
+      color: '#0891b2',
+      supplier: 'イードリーム',
+      costCategory: '組立費',
+      ocrFields: [
+        { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
+        { key:'issueDate',    label:'発行日',        type:'date',   required:false },
+        { key:'validUntil',   label:'有効期限',      type:'date',   required:false },
+        { key:'totalAmount',  label:'合計金額(税込)', type:'number', required:true  },
+        { key:'subtotal',     label:'小計(税抜)',     type:'number', required:false },
+        { key:'productName',  label:'機種名/品名',   type:'text',   required:false },
+        { key:'modelCode',    label:'機種コード',     type:'text',   required:false },
+        { key:'quantity',     label:'数量',           type:'number', required:false },
+        { key:'unitPrice',    label:'組立単価',       type:'number', required:false },
+        { key:'assemblyType', label:'組立種別',       type:'text',   required:false },
+        { key:'memo',         label:'備考・条件',     type:'text',   required:false },
+      ],
+      statusFlow: ['未確認','確認中','承認済み','発注済み','却下'],
+      autoLink: false,
+    },
+    // ── PCB業者（基板費）──────────────────────────────────
+    {
+      id: 'quote_pcb',
+      name: 'PCB業者見積書（基板費）',
+      enabled: false,
+      importFolderId: '',
+      saveFolderId: '',
+      processedFolderId: '',
+      sheetName: 'PCB_基板費',
+      color: '#15803d',
+      supplier: 'PCB業者',
+      costCategory: 'PCB費',
+      ocrFields: [
+        { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
+        { key:'issueDate',    label:'発行日',        type:'date',   required:false },
+        { key:'validUntil',   label:'有効期限',      type:'date',   required:false },
+        { key:'totalAmount',  label:'合計金額(税込)', type:'number', required:true  },
+        { key:'subtotal',     label:'小計(税抜)',     type:'number', required:false },
+        { key:'boardName',    label:'基板名/品名',   type:'text',   required:false },
+        { key:'modelCode',    label:'機種コード',     type:'text',   required:false },
+        { key:'quantity',     label:'枚数',           type:'number', required:false },
+        { key:'unitPrice',    label:'基板単価',       type:'number', required:false },
+        { key:'layers',       label:'層数',           type:'number', required:false },
+        { key:'boardSize',    label:'基板サイズ',     type:'text',   required:false },
+        { key:'deliveryDays', label:'納期(日数)',     type:'number', required:false },
+        { key:'memo',         label:'備考・条件',     type:'text',   required:false },
+      ],
+      statusFlow: ['未確認','確認中','承認済み','発注済み','却下'],
+      autoLink: false,
+    },
+    // ── コスト査定書類 ─────────────────────────────────────
     {
       id: 'cost_document',
       name: 'コスト査定書類',
@@ -114,7 +180,7 @@ function _getDefaultDocTypes() {
       saveFolderId: '',
       processedFolderId: '',
       sheetName: 'コスト査定書類',
-      color: '#0891b2',
+      color: '#6366f1',
       ocrFields: [
         { key:'documentNo',  label:'書類番号',  type:'text',   required:false },
         { key:'issueDate',   label:'発行日',    type:'date',   required:false },
@@ -316,6 +382,85 @@ function apiGetGenericDocs(payload) {
       return obj;
     });
     return { success: true, items: items, docType: docType };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 3社コスト比較: 機種コードをキーに岐阜電子・イードリーム・PCBの金額を横断集計
+ */
+function apiGetCostSummary(payload) {
+  try {
+    var modelCode = payload && payload.modelCode ? String(payload.modelCode).trim() : '';
+    var ss = getSpreadsheet();
+    var targetIds = ['quote_gifu_denshi', 'quote_edream', 'quote_pcb'];
+    var docTypes = getAllDocTypes().filter(function(d) { return targetIds.indexOf(d.id) >= 0; });
+    var summary = {};
+
+    docTypes.forEach(function(dt) {
+      var sheet = ss.getSheetByName(dt.sheetName);
+      if (!sheet || sheet.getLastRow() <= 1) return;
+      var data = sheet.getDataRange().getValues();
+      var headers = data[0];
+      var mcIdx = headers.indexOf('機種コード');
+      data.slice(1).forEach(function(row) {
+        var mc = mcIdx >= 0 ? String(row[mcIdx] || '').trim() : '';
+        if (modelCode && mc !== modelCode) return;
+        var key = mc || '（機種未設定）';
+        if (!summary[key]) summary[key] = {};
+        var obj = {};
+        headers.forEach(function(h, i) { obj[h] = row[i]; });
+        if (!summary[key][dt.id] || (Number(obj['合計金額(税込)']) < Number(summary[key][dt.id].totalAmount))) {
+          summary[key][dt.id] = {
+            docTypeId:    dt.id,
+            name:         dt.name,
+            costCategory: dt.costCategory || '',
+            documentNo:   obj['見積番号'] || '',
+            issueDate:    obj['発行日']    || '',
+            totalAmount:  Number(obj['合計金額(税込)']) || 0,
+            pdfUrl:       obj['PDFリンク'] || '',
+          };
+        }
+      });
+    });
+
+    return { success: true, summary: summary };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * ステータス更新（シートの「ステータス」列を更新）
+ */
+function apiUpdateGenericDocStatus(payload) {
+  if (!payload || !payload.docTypeId || !payload.docId || !payload.status) {
+    return { success: false, error: 'docTypeId / docId / status が必要です' };
+  }
+  try {
+    var docType = getAllDocTypes().find(function(d) { return d.id === payload.docTypeId; });
+    if (!docType) return { success: false, error: '種別が見つかりません' };
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(docType.sheetName);
+    if (!sheet) return { success: false, error: 'シートが存在しません' };
+    var data    = sheet.getDataRange().getValues();
+    var headers = data[0];
+    var idIdx   = headers.indexOf('ID');
+    var stIdx   = headers.indexOf('ステータス');
+    if (idIdx < 0) return { success: false, error: 'ID列が見つかりません' };
+    // ステータス列がなければ追加
+    if (stIdx < 0) {
+      stIdx = headers.length;
+      sheet.getRange(1, stIdx + 1).setValue('ステータス');
+    }
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][idIdx]) === String(payload.docId)) {
+        sheet.getRange(i + 1, stIdx + 1).setValue(payload.status);
+        return { success: true };
+      }
+    }
+    return { success: false, error: '対象行が見つかりません' };
   } catch(e) {
     return { success: false, error: e.message };
   }

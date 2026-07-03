@@ -100,10 +100,12 @@ function handleApiRequest(action, payload) {
       case 'getApprovalSettings':     res = _apiGetApprovalSettings(); break;
       case 'saveApprovalSettings':    res = _apiSaveApprovalSettings(payload); break;
       // 汎用書類種別管理
-      case 'getDocTypes':             res = apiGetDocTypes(); break;
-      case 'saveDocType':             res = apiSaveDocType(payload); break;
-      case 'deleteDocType':           res = apiDeleteDocType(payload); break;
-      case 'getGenericDocs':          res = apiGetGenericDocs(payload); break;
+      case 'getDocTypes':                 res = apiGetDocTypes(); break;
+      case 'saveDocType':                 res = apiSaveDocType(payload); break;
+      case 'deleteDocType':               res = apiDeleteDocType(payload); break;
+      case 'getGenericDocs':              res = apiGetGenericDocs(payload); break;
+      case 'getCostSummary':              res = apiGetCostSummary(payload); break;
+      case 'updateGenericDocStatus':      res = apiUpdateGenericDocStatus(payload); break;
       case 'getAnalysisReport':       res = apiGetAnalysisReport(payload); break;
       case 'chatbotQuery':        res = apiChatbotQuery(payload); break;
       case 'modelInfoGet':        res = _apiModelInfoGet(payload); break;
