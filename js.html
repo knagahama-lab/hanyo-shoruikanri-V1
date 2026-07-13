@@ -2003,7 +2003,7 @@ function switchAdminTab(tab) {
   }
   if (tab === 'apiconn') loadApiConnList();
   if (tab === 'doctype') _onShowDocTypeTab();
-  if (tab === 'doctypemgmt') loadDocTypeList();
+  if (tab === 'doctypemgmt') loadGenericDocTypeList();
 }
 
 // ============================================================
@@ -2011,7 +2011,7 @@ function switchAdminTab(tab) {
 // ============================================================
 let _docTypeEditId = null; // 編集中の種別ID（null=新規）
 
-function loadDocTypeList() {
+function loadGenericDocTypeList() {
   const el = document.getElementById('doc-type-list');
   if (!el) return;
   el.innerHTML = '<div class="loading">読み込み中...</div>';
@@ -2167,7 +2167,7 @@ function saveCurrentDocType() {
       if (res && res.success) {
         showToast('✅ 書類種別を保存しました');
         closeGenericDocTypeModal();
-        loadDocTypeList();
+        loadGenericDocTypeList();
         _initGenericDocSidebar();
       } else { showToast('保存失敗: ' + (res?res.error:'不明'), true); }
     })
@@ -2182,7 +2182,7 @@ function deleteCurrentDocType() {
       if (res && res.success) {
         showToast('✅ 削除しました');
         closeGenericDocTypeModal();
-        loadDocTypeList();
+        loadGenericDocTypeList();
         _initGenericDocSidebar();
       } else { showToast('削除失敗: ' + (res?res.error:'不明'), true); }
     })
@@ -2268,12 +2268,19 @@ function loadGenericDocsData() {
   if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--text-muted);">⏳ 読み込み中...</td></tr>';
   google.script.run
     .withSuccessHandler(function(res) {
-      if (!res || !res.success) { showToast('読み込み失敗: ' + (res ? res.error : ''), true); return; }
+      if (!res || !res.success) {
+        showToast('読み込み失敗: ' + (res ? res.error : ''), true);
+        if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--danger);">❌ 読み込みに失敗しました: ' + _esc((res && res.error) || '不明なエラー') + '</td></tr>';
+        return;
+      }
       _genericDocItems = res.items || [];
       if (res.docType) _buildGenericDocTableHeader(res.docType);
       applyGenericDocsFilter();
     })
-    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .withFailureHandler(function(err) {
+      showToast('通信エラー: ' + err.message, true);
+      if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--danger);">❌ 通信エラー: ' + _esc(err.message) + '</td></tr>';
+    })
     .handleApiRequest('getGenericDocs', { docTypeId: _currentGenericDocTypeId });
 }
 
@@ -2303,7 +2310,8 @@ function applyGenericDocsFilter() {
 function _renderGenericDocsTable() {
   const tbody = document.getElementById('gdoc-tbody');
   const dt = _genericDocTypes.find(function(d) { return d.id === _currentGenericDocTypeId; });
-  if (!tbody || !dt) return;
+  if (!tbody) return;
+  if (!dt) { tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--danger);">❌ 種別情報の取得に失敗しました。ページを再読み込みしてください。</td></tr>'; return; }
   const fields = (dt.ocrFields || []).slice(0, 9);
   const total = _filteredGenericDocItems.length;
   const start = (_genericDocPage - 1) * _genericDocLimit;
@@ -2393,7 +2401,7 @@ function copyDocType(id) {
         .withSuccessHandler(function(r2) {
           if (r2 && r2.success) {
             showToast('✅ コピーしました: ' + copy.name);
-            loadDocTypeList();
+            loadGenericDocTypeList();
             _initGenericDocSidebar();
           } else { showToast('保存失敗: ' + (r2 ? r2.error : ''), true); }
         })
