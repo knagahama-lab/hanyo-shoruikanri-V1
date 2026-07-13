@@ -2101,7 +2101,7 @@ function openEditDocTypeModal(id) {
     .handleApiRequest('getDocTypes', null);
 }
 
-function closeDocTypeModal() {
+function closeGenericDocTypeModal() {
   document.getElementById('doc-type-edit-modal').classList.remove('open');
 }
 
@@ -2166,7 +2166,7 @@ function saveCurrentDocType() {
     .withSuccessHandler(function(res) {
       if (res && res.success) {
         showToast('✅ 書類種別を保存しました');
-        closeDocTypeModal();
+        closeGenericDocTypeModal();
         loadDocTypeList();
         _initGenericDocSidebar();
       } else { showToast('保存失敗: ' + (res?res.error:'不明'), true); }
@@ -2181,7 +2181,7 @@ function deleteCurrentDocType() {
     .withSuccessHandler(function(res) {
       if (res && res.success) {
         showToast('✅ 削除しました');
-        closeDocTypeModal();
+        closeGenericDocTypeModal();
         loadDocTypeList();
         _initGenericDocSidebar();
       } else { showToast('削除失敗: ' + (res?res.error:'不明'), true); }
