@@ -843,6 +843,11 @@ tr:hover td{background:#f8fafc;}
                   <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px;">処理済みフォルダID（インポート後にファイルを移動する場所）</label>
                   <input type="text" id="dt-processed-folder" placeholder="1xxxxx..." style="width:100%;padding:8px 10px;border:1px solid #93c5fd;border-radius:6px;font-size:12px;font-family:monospace;box-sizing:border-box;">
                 </div>
+                <div>
+                  <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:3px;">分類キーワード（他の種別とインポートフォルダを共有する場合のみ）</label>
+                  <input type="text" id="dt-classify-keywords" placeholder="例: イードリーム,eDream" style="width:100%;padding:8px 10px;border:1px solid #93c5fd;border-radius:6px;font-size:12px;box-sizing:border-box;">
+                  <div style="font-size:10px;color:#6b7280;margin-top:3px;">同じインポートフォルダIDを複数の種別で共有している場合、OCRで判定したPDFの発行元会社名にここで指定したキーワード（カンマ区切り、いずれか1つでも部分一致）が含まれていればこの種別として振り分けます。フォルダを共有しない種別では空欄のままでOKです。</div>
+                </div>
               </div>
             </div>
 

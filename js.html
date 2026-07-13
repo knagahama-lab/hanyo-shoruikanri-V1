@@ -2063,6 +2063,7 @@ function openAddDocTypeModal() {
   document.getElementById('dt-import-folder').value = '';
   document.getElementById('dt-save-folder').value = '';
   document.getElementById('dt-processed-folder').value = '';
+  document.getElementById('dt-classify-keywords').value = '';
   document.getElementById('dt-status-flow').value = '未確認,確認中,承認済み,却下';
   document.getElementById('dt-delete-btn').style.display = 'none';
   _renderOcrFields([
@@ -2093,6 +2094,7 @@ function openEditDocTypeModal(id) {
       document.getElementById('dt-import-folder').value = dt.importFolderId || '';
       document.getElementById('dt-save-folder').value = dt.saveFolderId || '';
       document.getElementById('dt-processed-folder').value = dt.processedFolderId || '';
+      document.getElementById('dt-classify-keywords').value = dt.classifyKeywords || '';
       document.getElementById('dt-status-flow').value = (dt.statusFlow || []).join(',');
       document.getElementById('dt-delete-btn').style.display = 'inline-block';
       _renderOcrFields(dt.ocrFields || []);
@@ -2158,6 +2160,7 @@ function saveCurrentDocType() {
     importFolderId:   document.getElementById('dt-import-folder').value.trim(),
     saveFolderId:     document.getElementById('dt-save-folder').value.trim(),
     processedFolderId:document.getElementById('dt-processed-folder').value.trim(),
+    classifyKeywords: document.getElementById('dt-classify-keywords').value.trim(),
     statusFlow:       document.getElementById('dt-status-flow').value.split(',').map(s=>s.trim()).filter(Boolean),
     ocrFields:        _collectOcrFields(),
     autoLink:         false,
