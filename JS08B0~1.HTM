@@ -2077,7 +2077,7 @@ function switchAdminTab(tab) {
   }
   if (tab === 'apiconn') loadApiConnList();
   if (tab === 'doctype') _onShowDocTypeTab();
-  if (tab === 'doctypemgmt') loadDocTypeList();
+  if (tab === 'doctypemgmt') loadGenericDocTypeMgmtList();
 }
 
 // ============================================================
@@ -2085,7 +2085,7 @@ function switchAdminTab(tab) {
 // ============================================================
 let _docTypeEditId = null; // 編集中の種別ID（null=新規）
 
-function loadDocTypeList() {
+function loadGenericDocTypeMgmtList() {
   const el = document.getElementById('doc-type-list');
   if (!el) return;
   el.innerHTML = '<div class="loading">読み込み中...</div>';
@@ -2175,7 +2175,7 @@ function openEditDocTypeModal(id) {
     .handleApiRequest('getDocTypes', null);
 }
 
-function closeDocTypeModal() {
+function closeGenericDocTypeModal() {
   document.getElementById('doc-type-edit-modal').classList.remove('open');
 }
 
@@ -2240,8 +2240,8 @@ function saveCurrentDocType() {
     .withSuccessHandler(function(res) {
       if (res && res.success) {
         showToast('✅ 書類種別を保存しました');
-        closeDocTypeModal();
-        loadDocTypeList();
+        closeGenericDocTypeModal();
+        loadGenericDocTypeMgmtList();
         _initGenericDocSidebar();
       } else { showToast('保存失敗: ' + (res?res.error:'不明'), true); }
     })
@@ -2255,8 +2255,8 @@ function deleteCurrentDocType() {
     .withSuccessHandler(function(res) {
       if (res && res.success) {
         showToast('✅ 削除しました');
-        closeDocTypeModal();
-        loadDocTypeList();
+        closeGenericDocTypeModal();
+        loadGenericDocTypeMgmtList();
         _initGenericDocSidebar();
       } else { showToast('削除失敗: ' + (res?res.error:'不明'), true); }
     })
@@ -2467,7 +2467,7 @@ function copyDocType(id) {
         .withSuccessHandler(function(r2) {
           if (r2 && r2.success) {
             showToast('✅ コピーしました: ' + copy.name);
-            loadDocTypeList();
+            loadGenericDocTypeMgmtList();
             _initGenericDocSidebar();
           } else { showToast('保存失敗: ' + (r2 ? r2.error : ''), true); }
         })
