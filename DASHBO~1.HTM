@@ -1303,6 +1303,76 @@ tr:hover td{background:#f8fafc;}
     <div id="page-ocr" class="page">
       <div style="text-align:center;padding:40px;"><h2>簡易OCRシステム</h2><button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button></div>
     </div>
+
+    <!-- ============ 汎用書類管理 ページ（書類種別ごとの一覧） ============ -->
+    <div id="page-generic-docs" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div>
+          <h2 id="gdoc-title" style="font-size:18px;font-weight:800;color:#7c3aed;">📋 書類一覧</h2>
+          <div id="gdoc-subtitle" style="font-size:12px;color:var(--text-sub);margin-top:2px;"></div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="topbar-btn" onclick="loadGenericDocsData()">🔄 更新</button>
+          <button class="topbar-btn" onclick="exportGenericDocsCsv()">📥 CSV</button>
+        </div>
+      </div>
+      <!-- フィルターバー -->
+      <div class="filter-bar" style="margin-bottom:14px;">
+        <div class="search-box" style="flex:1;min-width:180px;">
+          <input type="text" id="gdoc-search" placeholder="書類番号・取引先名などで検索..." oninput="applyGenericDocsFilter()">
+        </div>
+        <select id="gdoc-status-filter" onchange="applyGenericDocsFilter()" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;">
+          <option value="">すべてのステータス</option>
+        </select>
+        <button class="topbar-btn" onclick="document.getElementById('gdoc-search').value='';applyGenericDocsFilter()">クリア</button>
+      </div>
+      <!-- テーブル -->
+      <div class="table-wrap">
+        <div class="table-toolbar">
+          <h2 id="gdoc-count" style="font-size:13px;color:var(--text-sub);font-weight:500;">0 件</h2>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead id="gdoc-thead"></thead>
+            <tbody id="gdoc-tbody">
+              <tr><td colspan="20" style="text-align:center;padding:32px;color:var(--text-muted);">書類種別を選択してください</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" id="gdoc-pagination"></div>
+      </div>
+    </div>
+    
+    <!-- ============ カスタム書類 ページ ============ -->
+    <div id="page-customdoc" class="page">
+      <div class="page-heading" id="customdoc-heading">
+        <div>
+          <h2 id="customdoc-title" style="font-size:16px;font-weight:700;">📄 カスタム書類</h2>
+          <div id="customdoc-subtitle" style="font-size:11.5px;color:var(--text-muted);margin-top:2px;"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="customdoc-ocr-btn" onclick="openCustomDocOcr()" title="ファイルをOCRして自動入力">🔍 OCR読み取り</button>
+          <button class="btn btn-primary btn-sm" onclick="openCustomDocAddModal(null)">＋ 追加</button>
+          <button class="btn btn-outline btn-sm" onclick="loadCustomDocData()">🔄</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+        <div class="search-box" style="flex:1;min-width:180px;"><input type="text" id="customdoc-search" placeholder="検索..." oninput="applyCustomDocFilter()"></div>
+        <select id="customdoc-filter-status" onchange="applyCustomDocFilter()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;"><option value="">すべてのステータス</option></select>
+        <select id="customdoc-sort-key" onchange="setCustomDocSort(this.value)" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;"><option value="_createdAt">📅 登録日</option></select>
+        <button id="customdoc-sort-dir" onclick="setCustomDocSort(document.getElementById('customdoc-sort-key').value)" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
+        <button class="btn btn-outline btn-sm" onclick="clearCustomDocFilter()">クリア</button>
+        <button class="btn btn-outline btn-sm" onclick="exportCustomDocCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="customdoc-table">
+          <thead id="customdoc-thead"><tr><th>読み込み中...</th></tr></thead>
+          <tbody id="customdoc-tbody"><tr><td>...</td></tr></tbody>
+        </table>
+      </div>
+      <div id="customdoc-pagination" style="margin-top:12px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;"></div>
+      <div id="customdoc-count" style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;"></div>
+    </div>
   </div>
 </div>
 
@@ -1557,76 +1627,6 @@ tr:hover td{background:#f8fafc;}
 </script>
 
 <?!= include("js") ?>
-
-<!-- ============ 汎用書類管理 ページ（書類種別ごとの一覧） ============ -->
-<div id="page-generic-docs" class="page">
-  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-    <div>
-      <h2 id="gdoc-title" style="font-size:18px;font-weight:800;color:#7c3aed;">📋 書類一覧</h2>
-      <div id="gdoc-subtitle" style="font-size:12px;color:var(--text-sub);margin-top:2px;"></div>
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button class="topbar-btn" onclick="loadGenericDocsData()">🔄 更新</button>
-      <button class="topbar-btn" onclick="exportGenericDocsCsv()">📥 CSV</button>
-    </div>
-  </div>
-  <!-- フィルターバー -->
-  <div class="filter-bar" style="margin-bottom:14px;">
-    <div class="search-box" style="flex:1;min-width:180px;">
-      <input type="text" id="gdoc-search" placeholder="書類番号・取引先名などで検索..." oninput="applyGenericDocsFilter()">
-    </div>
-    <select id="gdoc-status-filter" onchange="applyGenericDocsFilter()" style="font-size:12px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:#fff;">
-      <option value="">すべてのステータス</option>
-    </select>
-    <button class="topbar-btn" onclick="document.getElementById('gdoc-search').value='';applyGenericDocsFilter()">クリア</button>
-  </div>
-  <!-- テーブル -->
-  <div class="table-wrap">
-    <div class="table-toolbar">
-      <h2 id="gdoc-count" style="font-size:13px;color:var(--text-sub);font-weight:500;">0 件</h2>
-    </div>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead id="gdoc-thead"></thead>
-        <tbody id="gdoc-tbody">
-          <tr><td colspan="20" style="text-align:center;padding:32px;color:var(--text-muted);">書類種別を選択してください</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="pagination" id="gdoc-pagination"></div>
-  </div>
-</div>
-
-<!-- ============ カスタム書類 ページ ============ -->
-<div id="page-customdoc" class="page">
-  <div class="page-heading" id="customdoc-heading">
-    <div>
-      <h2 id="customdoc-title" style="font-size:16px;font-weight:700;">📄 カスタム書類</h2>
-      <div id="customdoc-subtitle" style="font-size:11.5px;color:var(--text-muted);margin-top:2px;"></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-outline btn-sm" id="customdoc-ocr-btn" onclick="openCustomDocOcr()" title="ファイルをOCRして自動入力">🔍 OCR読み取り</button>
-      <button class="btn btn-primary btn-sm" onclick="openCustomDocAddModal(null)">＋ 追加</button>
-      <button class="btn btn-outline btn-sm" onclick="loadCustomDocData()">🔄</button>
-    </div>
-  </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
-    <div class="search-box" style="flex:1;min-width:180px;"><input type="text" id="customdoc-search" placeholder="検索..." oninput="applyCustomDocFilter()"></div>
-    <select id="customdoc-filter-status" onchange="applyCustomDocFilter()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;"><option value="">すべてのステータス</option></select>
-    <select id="customdoc-sort-key" onchange="setCustomDocSort(this.value)" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;"><option value="_createdAt">📅 登録日</option></select>
-    <button id="customdoc-sort-dir" onclick="setCustomDocSort(document.getElementById('customdoc-sort-key').value)" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
-    <button class="btn btn-outline btn-sm" onclick="clearCustomDocFilter()">クリア</button>
-    <button class="btn btn-outline btn-sm" onclick="exportCustomDocCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
-  </div>
-  <div class="table-wrap">
-    <table class="data-table" id="customdoc-table">
-      <thead id="customdoc-thead"><tr><th>読み込み中...</th></tr></thead>
-      <tbody id="customdoc-tbody"><tr><td>...</td></tr></tbody>
-    </table>
-  </div>
-  <div id="customdoc-pagination" style="margin-top:12px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;"></div>
-  <div id="customdoc-count" style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;"></div>
-</div>
 
 <!-- ============ カスタム書類 追加/編集モーダル ============ -->
 <div id="customdoc-add-modal" class="modal-overlay" onclick="if(event.target===this)closeCustomDocAddModal()">
