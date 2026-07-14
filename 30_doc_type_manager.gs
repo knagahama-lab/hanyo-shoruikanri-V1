@@ -228,20 +228,37 @@ function processGenericDocTypes() {
   var total = 0;
   docTypes.forEach(function(dt) {
     try {
-      total += _watchGenericDocType(dt);
+      total += _watchGenericDocType(dt, docTypes);
     } catch(e) {
       Logger.log('[GENERIC WATCH ERROR] ' + dt.name + ': ' + e.message);
     }
   });
+  try { _reportUnmatchedGenericDocs(docTypes); } catch(e) { Logger.log('[GENERIC WATCH] 未判定チェックエラー: ' + e.message); }
   return total;
 }
 
 /**
  * 汎用DocTypeのフォルダ監視・OCR処理
+ *
+ * 【発行元による自動振り分けについて】
+ * 複数のDocTypeが同じインポートフォルダ（importFolderId）を共有している場合、
+ * docType.supplier（発行元名。例:"岐阜電子工業"）を使ってPDFの本文を照合し、
+ * 一致したDocTypeだけがそのファイルを処理・転記する。一致しないファイルは
+ * スキップし（未処理のまま残す）、フォルダを共有している他のDocTypeの判定に委ねる。
+ * これにより、1つの共有インボックスフォルダに複数の発行元の見積書が混在していても、
+ * それぞれ正しいシート・保存先フォルダへ自動的に分別される。
+ *
+ * @param {object} docType         処理対象のDocType
+ * @param {object[]} [allDocTypes] 同じフォルダを共有している可能性のある他の有効DocType一覧
+ *                                 （processGenericDocTypes から渡される。単体テスト実行時は省略可）
  */
-function _watchGenericDocType(docType) {
+function _watchGenericDocType(docType, allDocTypes) {
   var processedIds = _getProcessedFileIds();
   var count = 0;
+  // 同じインポートフォルダを共有している「発行元判定つき」の他のDocTypeがあるか
+  var sharesFolderWithOthers = (allDocTypes || []).some(function(d) {
+    return d.id !== docType.id && d.importFolderId === docType.importFolderId && d.supplier;
+  });
   try {
     var folder = DriveApp.getFolderById(docType.importFolderId);
     var files   = folder.getFilesByType(MimeType.PDF);
@@ -253,6 +270,17 @@ function _watchGenericDocType(docType) {
         _moveToProcessedSubfolder(file, folder, docType.processedFolderId);
         continue;
       }
+
+      // 発行元による分別（他のDocTypeとフォルダを共有していて、この種別に発行元名が設定されている場合のみ判定）
+      if (sharesFolderWithOthers && docType.supplier) {
+        var isMatch = _pdfMatchesSupplier(file, docType.supplier);
+        if (!isMatch) {
+          Logger.log('[GENERIC WATCH] 発行元不一致のためスキップ: ' + file.getName() + ' → [' + docType.name + '] ではない');
+          continue; // 未処理のまま残し、他のDocTypeの判定に委ねる
+        }
+        Logger.log('[GENERIC WATCH] 発行元一致: ' + file.getName() + ' → [' + docType.name + ']');
+      }
+
       Logger.log('[GENERIC WATCH] 処理開始: ' + file.getName() + ' [' + docType.name + ']');
       try {
         // OCR実行（フィールド定義をプロンプトに反映）
@@ -283,6 +311,56 @@ function _watchGenericDocType(docType) {
     Logger.log('[GENERIC WATCH FOLDER ERROR] ' + docType.name + ': ' + folderErr.message);
   }
   return count;
+}
+
+/**
+ * PDFの本文テキストに発行元名が含まれているかを判定する。
+ * Drive APIのOCR変換（13_ocr_extended.gs の _extractTextFromPdf）で
+ * PDFをテキスト化し、その中に supplierName が含まれているかを単純検索する。
+ * テキスト抽出に失敗した場合（スキャン画像などでOCRが効かない場合）は
+ * 判定不能として true を返し、処理自体は止めない（誤って握りつぶさないため）。
+ */
+function _pdfMatchesSupplier(file, supplierName) {
+  if (!supplierName) return true;
+  try {
+    var text = _extractTextFromPdf(file);
+    if (!text) {
+      Logger.log('[SUPPLIER MATCH] テキスト抽出不可のため判定スキップ: ' + file.getName());
+      return true;
+    }
+    return text.indexOf(supplierName) !== -1;
+  } catch(e) {
+    Logger.log('[SUPPLIER MATCH ERROR] ' + e.message);
+    return true;
+  }
+}
+
+/**
+ * 発行元が判定できず、どのDocTypeにも処理されなかったPDFをログに警告として出力する。
+ * （フォルダを共有しているDocType同士が対象。手動での振り分け・supplier名の見直しを促す）
+ */
+function _reportUnmatchedGenericDocs(docTypes) {
+  var processedIds = _getProcessedFileIds();
+  var byFolder = {};
+  (docTypes || []).forEach(function(dt) {
+    if (!dt.supplier) return;
+    (byFolder[dt.importFolderId] = byFolder[dt.importFolderId] || []).push(dt);
+  });
+  Object.keys(byFolder).forEach(function(folderId) {
+    if (byFolder[folderId].length < 2) return; // 共有していないフォルダはチェック不要
+    try {
+      var folder = DriveApp.getFolderById(folderId);
+      var files  = folder.getFilesByType(MimeType.PDF);
+      var names  = byFolder[folderId].map(function(d) { return d.name; }).join(' / ');
+      while (files.hasNext()) {
+        var file = files.next();
+        if (processedIds[file.getId()]) continue;
+        Logger.log('[GENERIC WATCH] ⚠️ 発行元未判定のまま残存: "' + file.getName() + '"（候補: ' + names + '）→ 手動で振り分けるか、docType.supplier の表記を見直してください');
+      }
+    } catch(e) {
+      Logger.log('[GENERIC WATCH] 未判定チェック失敗（folderId=' + folderId + '）: ' + e.message);
+    }
+  });
 }
 
 /**
@@ -378,12 +456,23 @@ function apiGetGenericDocs(payload) {
     var headers = data[0];
     var items = data.slice(1).map(function(row) {
       var obj = {};
-      headers.forEach(function(h, i) { obj[h] = row[i]; });
+      headers.forEach(function(h, i) {
+        var v = row[i];
+        // Dateオブジェクトはそのままクライアントへ返すと google.script.run の
+        // シリアライズ処理で失敗する場合があるため、文字列に変換しておく
+        if (Object.prototype.toString.call(v) === '[object Date]') {
+          v = isNaN(v.getTime()) ? '' : Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd');
+        } else if (v === undefined) {
+          v = '';
+        }
+        obj[String(h)] = v;
+      });
       return obj;
     });
     return { success: true, items: items, docType: docType };
   } catch(e) {
-    return { success: false, error: e.message };
+    Logger.log('[GENERIC DOCS GET ERROR] ' + (e && e.stack ? e.stack : e));
+    return { success: false, error: (e && (e.message || String(e))) || '不明なサーバーエラー（Apps Scriptの「実行数」ログを確認してください）' };
   }
 }
 
