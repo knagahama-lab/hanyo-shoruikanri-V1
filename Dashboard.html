@@ -337,9 +337,11 @@ tr:hover td{background:#f8fafc;}
     <div id="toast"></div>
 
     <div id="page-list" class="page active">
-      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;flex-wrap:wrap;">
         <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
-        <button id="subtab-quote" onclick="switchSubTab('quote')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 見積書一覧</button>
+        <button id="subtab-quote-impl" onclick="switchSubTab('quote-impl')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">🔧 実装見積書</button>
+        <button id="subtab-quote-pcb" onclick="switchSubTab('quote-pcb')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">🟩 PCB見積書</button>
+        <button id="subtab-quote-assembly" onclick="switchSubTab('quote-assembly')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">🔩 組立見積書</button>
       </div>
 
       <div id="area-order">
@@ -373,7 +375,7 @@ tr:hover td{background:#f8fafc;}
 
       <div id="area-quote" style="display:none;">
         <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
-          <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl" id="qs-total-label">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">見積合計金額</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
         </div>
@@ -398,8 +400,8 @@ tr:hover td{background:#f8fafc;}
           <button class="btn btn-outline btn-sm" onclick="exportQuotePdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
         </div>
         <div class="table-wrap">
-          <div class="table-toolbar"><h2>見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
-          <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">「見積書一覧」タブをクリックして読み込んでください</div></div>
+          <div class="table-toolbar"><h2 id="qs-title">見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
+          <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">タブをクリックして読み込んでください</div></div>
         </div>
         <div class="pagination" id="qs-pagination"></div>
       </div>
@@ -1316,6 +1318,14 @@ tr:hover td{background:#f8fafc;}
       </div>
       <div class="form-field" style="margin-bottom:12px;"><label>件名 ★</label><input type="text" id="ledger-subject" placeholder="見積件名を入力（必須）"></div>
       <div class="form-row">
+        <div class="form-field"><label>書類区分</label>
+          <select id="ledger-doc-category">
+            <option value="">— 未設定 —</option>
+            <option value="実装">🔧 実装見積書</option>
+            <option value="PCB">🟩 PCB見積書</option>
+            <option value="組立">🔩 組立見積書</option>
+          </select>
+        </div>
         <div class="form-field"><label>ステータス</label>
           <select id="ledger-status">
             <option value="作成予定">作成予定</option>
@@ -1324,6 +1334,8 @@ tr:hover td{background:#f8fafc;}
             <option value="キャンセル">キャンセル</option>
           </select>
         </div>
+      </div>
+      <div class="form-row">
         <div class="form-field"><label>見積金額</label><input type="number" id="ledger-amount" placeholder="税抜金額"></div>
       </div>
       <div class="form-row">

@@ -41,6 +41,11 @@ let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab =
 let _allSmItems = [];
 let _filteredSmItems = [];
 let _quoteSortKey = 'issueDate'; let _quoteSortDir = 'desc';
+// ── 見積書区分タブ（実装／PCB／組立）──
+let _quoteSubTab = 'impl';
+const _QUOTE_CATEGORY_MAP = { impl:'実装', pcb:'PCB', assembly:'組立' };
+const _QUOTE_CATEGORY_TITLES = { impl:'🔧 実装見積書', pcb:'🟩 PCB見積書', assembly:'🔩 組立見積書' };
+function _quoteCategoryOf(subTab) { return _QUOTE_CATEGORY_MAP[subTab] || ''; }
 let _ledgerSortKey = 'issueDate'; let _ledgerSortDir = 'desc';
 let _adminLoaded = false; // ★ 管理コンソール初期化フラグ
 let _approvalButtonEnabled = true; // ★ 承認ボタン表示設定
@@ -455,7 +460,29 @@ function quickUpdateOrderType(mgmtId, newType) {
 // ── 案件一覧 ──
 function normalizeSearchText(str){ return String(str||'').toLowerCase().replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[\u3000]/g, ' '); }
 function loadData() { const container = document.getElementById('table-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res || !res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗</div>'; return; } S.all = res.items || []; S.filtered = S.all.slice(); S.page = 1; _updateSummary(); _renderTable(); }).handleApiRequest('getAll', null); }
-function switchSubTab(tab) { var isOrder = tab === 'order'; var areaOrder = document.getElementById('area-order'), areaQuote = document.getElementById('area-quote'); var orderBtn = document.getElementById('subtab-order'), quoteBtn = document.getElementById('subtab-quote'); if (!areaOrder || !areaQuote || !orderBtn || !quoteBtn) return; areaOrder.style.display = isOrder ? '' : 'none'; areaQuote.style.display = isOrder ? 'none' : ''; orderBtn.style.color = isOrder ? 'var(--primary)' : 'var(--text-sub)'; orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent'; quoteBtn.style.color = isOrder ? 'var(--text-sub)' : 'var(--primary)'; quoteBtn.style.borderBottom = isOrder ? '2px solid transparent' : '2px solid var(--primary)'; if (!isOrder && _allQuotes.length === 0) loadQuoteList(); }
+function switchSubTab(tab) {
+  var isOrder = tab === 'order';
+  var areaOrder = document.getElementById('area-order'), areaQuote = document.getElementById('area-quote');
+  var orderBtn = document.getElementById('subtab-order');
+  var tabBtns = { 'quote-impl': document.getElementById('subtab-quote-impl'), 'quote-pcb': document.getElementById('subtab-quote-pcb'), 'quote-assembly': document.getElementById('subtab-quote-assembly') };
+  if (!areaOrder || !areaQuote || !orderBtn) return;
+  areaOrder.style.display = isOrder ? '' : 'none';
+  areaQuote.style.display = isOrder ? 'none' : '';
+  orderBtn.style.color = isOrder ? 'var(--primary)' : 'var(--text-sub)';
+  orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
+  Object.keys(tabBtns).forEach(function(key) {
+    var btn = tabBtns[key]; if (!btn) return;
+    var active = !isOrder && tab === key;
+    btn.style.color = active ? 'var(--primary)' : 'var(--text-sub)';
+    btn.style.borderBottom = active ? '2px solid var(--primary)' : '2px solid transparent';
+  });
+  if (!isOrder) {
+    _quoteSubTab = tab.replace('quote-', '');
+    var titleEl = document.getElementById('qs-title'); if (titleEl) titleEl.textContent = _QUOTE_CATEGORY_TITLES[_quoteSubTab] || '見積書一覧';
+    var totalLabelEl = document.getElementById('qs-total-label'); if (totalLabelEl) totalLabelEl.textContent = (_QUOTE_CATEGORY_TITLES[_quoteSubTab] || '見積書') + ' 総件数';
+    if (_allQuotes.length === 0) loadQuoteList(); else applyQuoteFilter();
+  }
+}
 function _updateSummary() { const now = new Date(); const ym = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0'); if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent = S.all.filter(r=>r.status==='送信済み').length; if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領' || r.status==='受注済み').length; if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent = S.all.filter(r=>r.status==='納品済み').length; if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0).toLocaleString(); }
 function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','受注済み':'received','納品済み':'done','キャンセル':'planned'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
 function _otBadge(t){if(t==='試作')return'<span class="badge badge-trial">試作</span>';if(t==='量産')return'<span class="badge badge-mass">量産</span>';return'';}
@@ -489,6 +516,29 @@ function _getCompositionType(quoteNo){
   return l ? (l.compositionType||'') : '';
 }
 
+// 書類区分（実装／PCB／組立）切替ドロップダウン（見積書一覧用）
+const _DOC_CATEGORY_LABELS = { '': '— 未設定 —', '実装': '🔧 実装', 'PCB': '🟩 PCB', '組立': '🔩 組立' };
+function _docCategorySelectHtml(id, currentCategory, editType) {
+  const opts = ['', '実装', 'PCB', '組立'].map(c => `<option value="${c}"${c===(currentCategory||'')?' selected':''}>${_DOC_CATEGORY_LABELS[c]}</option>`).join('');
+  const safeId = String(id).replace(/'/g,"\\'");
+  return `<select style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;max-width:110px;" onchange="event.stopPropagation();quickUpdateDocCategory('${safeId}', this.value, '${editType}')">${opts}</select>`;
+}
+function quickUpdateDocCategory(id, newCategory, editType) {
+  const isLedger = editType === 'ledger' || String(id).startsWith('LEDGER_');
+  const realId = String(id).replace('LEDGER_', '');
+  const qItem = _allQuotes.find(r => (r._fromLedger ? ('LEDGER_' + r._ledgerId) : r.id) === id);
+  if (qItem) qItem.docCategory = newCategory;
+  if (isLedger) {
+    const led = (_allLedgerItems||[]).find(r => r.ledgerId === realId); if (led) led.category = newCategory;
+    google.script.run.withSuccessHandler(res => {
+      if (res.success) { showToast('区分を更新しました'); applyQuoteFilter(); } else showToast('更新失敗', true);
+    }).handleApiRequest('ledgerSave', { ledgerId: realId, category: newCategory });
+  } else {
+    google.script.run.withSuccessHandler(res => {
+      if (res.success) { showToast('区分を更新しました'); applyQuoteFilter(); } else showToast('更新失敗', true);
+    }).handleApiRequest('updateMgmt', { mgmtId: realId, docCategory: newCategory });
+  }
+}
 // ステータス手動切替ドロップダウン（注文書・見積書一覧共通）
 function _statusSelectHtml(id, currentStatus, editType) {
   const mgmtStatuses = ['作成予定','送信済み','受領','差し替え依頼中','受注済み','納品済み','キャンセル'];
@@ -612,7 +662,14 @@ function clearFilters(){ document.getElementById('search-input').value=''; ['fil
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }
 
 // ── 見積書一覧 ──
-function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); _renderQuoteTable(); }).handleApiRequest('quoteListGetAll', null); }
+function _quotesInCurrentTab() { const cat = _quoteCategoryOf(_quoteSubTab); return _allQuotes.filter(r => (r.docCategory || '') === cat); }
+function _updateQuoteSummary() {
+  const scoped = _quotesInCurrentTab();
+  if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = scoped.length;
+  if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = scoped.filter(r => r.linked).length;
+  if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = scoped.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
+}
+function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _quotePage = 1; applyQuoteFilter(); }).handleApiRequest('quoteListGetAll', null); }
 function _mergeLedgerIntoQuotes() {
   if (!_allLedgerItems || _allLedgerItems.length === 0) return;
   // 既存の見積No.セットと既にマージ済みの台帳IDセット（重複防止）
@@ -627,6 +684,7 @@ function _mergeLedgerIntoQuotes() {
       if (existing) {
         if (led.status) existing.status = led.status;
         if (led.compositionType) existing.compositionType = led.compositionType;
+        if (led.category) existing.docCategory = led.category;
       }
       return;
     }
@@ -647,6 +705,7 @@ function _mergeLedgerIntoQuotes() {
       modelCode: led.machineCode || led.modelCode || '',
       boardName: led.boardName || '',
       compositionType: led.compositionType || '',
+      docCategory: led.category || '',
       linked: false,
       orderNo: '',
       _fromLedger: true,
@@ -660,17 +719,19 @@ function applyQuoteFilter() {
   const st = document.getElementById('qs-filter-status').value; const linked = document.getElementById('qs-filter-linked').value;
   const amtEl = document.getElementById('qs-amount-search'); const amt = amtEl ? amtEl.value : '';
   const amtTolEl = document.getElementById('qs-amount-tol'); const amtTol = amtTolEl ? Number(amtTolEl.value) : 0;
+  const cat = _quoteCategoryOf(_quoteSubTab);
   _filteredQuotes = _allQuotes.filter(r => {
+    const mc = (r.docCategory || '') === cat;
     const txt = normalizeSearchText(JSON.stringify(r)); // 全情報を強制検索
     const mk = kws.length === 0 || kws.every(kw => txt.includes(kw));
     const ms = !st || r.status === st; const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
     const ma = _amtMatch([r.quoteAmount].concat(r.priceList||[]), amt, amtTol); // 見積合計金額 or 明細単価
-    return mk && ms && ml && ma;
+    return mc && mk && ms && ml && ma;
   });
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
-  _quotePage = 1; _renderQuoteTable();
+  _quotePage = 1; _updateQuoteSummary(); _renderQuoteTable();
 }
-function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; _filteredQuotes = _allQuotes.slice(); _quotePage = 1; _renderQuoteTable(); }
+function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; applyQuoteFilter(); }
 
 function _renderQuoteTable() {
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
@@ -684,6 +745,7 @@ function _renderQuoteTable() {
     const rct = r.compositionType || _getCompositionType(r.quoteNo);
     return `
     <tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(rct)}">
+      <td onclick="event.stopPropagation();">${_docCategorySelectHtml(selectId, r.docCategory, editType)}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')" style="white-space:nowrap;">${_typeBadge(rct)}<strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
       <td class="editable-cell" onclick="startInlineEditDate(event, '${realId}', 'issueDate', '${_esc(r.issueDate||r.quoteDate||"")}', '${editType}')" style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || r.quoteDate || '<span style=\"color:var(--text-muted);">—</span>'}</td>
@@ -706,7 +768,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>区分</th><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -1729,6 +1791,7 @@ function openLedgerAddModal(ledgerId) {
   if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = '';
   if (document.getElementById('ledger-status')) document.getElementById('ledger-status').value = '作成予定';
   if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = '';
+  if (document.getElementById('ledger-doc-category')) document.getElementById('ledger-doc-category').value = _quoteCategoryOf(_quoteSubTab) || '';
 
   if (ledgerId) {
     const item = _allLedgerItems.find(r => r.ledgerId === ledgerId);
@@ -1746,6 +1809,7 @@ function openLedgerAddModal(ledgerId) {
       sv('ledger-remarks', item.remarks || '');
       sv('ledger-submit-to', item.submitTo || '');
       if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = item.compositionType || '';
+      if (document.getElementById('ledger-doc-category')) document.getElementById('ledger-doc-category').value = item.category || '';
       if (item.issueDate || item.sentDate) {
         const d = (item.issueDate || item.sentDate || '').replace(/\//g, '-');
         if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = d;
@@ -1795,6 +1859,7 @@ function saveLedgerEntry() {
     remarks: v('ledger-remarks') || undefined,
     submitTo: v('ledger-submit-to') || undefined,
     compositionType: v('ledger-composition-type') || undefined,
+    category: v('ledger-doc-category') || undefined,
   };
   Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
   google.script.run

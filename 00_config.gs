@@ -96,6 +96,7 @@ var MGMT_COLS = {
   PARENT_MGMT_ID:    31,
   DEADLINE_NOTIFIED: 32,
   BOARD_NAME:        33,
+  DOC_CATEGORY:      34, // 見積書区分（実装／PCB／組立）
 };
 
 var QUOTE_COLS = {
@@ -417,7 +418,7 @@ function getAllMgmtData() {
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var last  = sheet.getLastRow();
   if (last <= 1) return [];
-  var readCols = Math.max(sheet.getLastColumn(), 33);
+  var readCols = Math.max(sheet.getLastColumn(), 34);
   return sheet.getRange(2, 1, last - 1, readCols).getValues()
     .filter(function(r) { return r[0] !== ''; });
 }
