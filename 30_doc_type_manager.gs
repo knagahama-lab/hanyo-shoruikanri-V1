@@ -365,37 +365,54 @@ function _reportUnmatchedGenericDocs(docTypes) {
 
 /**
  * 汎用OCR — docType.ocrFields に基づいてGeminiへ指示
+ *
+ * ★ 2026-07: 以前はここで UrlFetchApp.fetch を直接1回だけ呼んでいたため、
+ * Gemini無料枠のレート制限（15req/分）に達すると429エラーがそのまま
+ * JSON.parseで例外になり、catch節で「ファイル名だけをdocumentNoに入れる」
+ * フォールバックへ落ち、他の項目が全て空になる不具合が大量発生していた。
+ * 既存の見積書OCR（02_ocr_and_processing.gs）と同じ複数キー・自動リトライ
+ * 対応の _callGeminiApi() を使うことで解消する（18 api key manage.gs が
+ * 同名関数を上書きしていれば、そちらのレート制限回避版が使われる）。
  */
 function _extractGenericDocOcr(file, docType) {
+  var fieldList = docType.ocrFields.map(function(f) {
+    return '"' + f.key + '": "' + f.label + '(' + f.type + ')"';
+  }).join(', ');
+  var prompt = 'このPDFから以下の項目を抽出してJSON形式で返してください。\n'
+    + '項目: {' + fieldList + '}\n'
+    + '抽出できない項目は空文字 "" にしてください。'
+    + '数値項目は数値のみ（カンマ・円記号不要）。日付はYYYY/MM/DD形式。\n'
+    + 'JSONのみ返答してください。';
+  var pdfB64 = Utilities.base64Encode(file.getBlob().getBytes());
+  var body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: 'application/pdf', data: pdfB64 } }
+      ]
+    }],
+    generationConfig: { temperature: 0.1, responseMimeType: 'application/json' }
+  };
+
+  var result = _callGeminiApi(CONFIG.GEMINI_PRIMARY_MODEL, body);
+  if (!result) result = _callGeminiApi(CONFIG.GEMINI_FALLBACK_MODEL, body);
+  if (!result) {
+    Logger.log('[GENERIC OCR ERROR] ' + file.getName() + ': 全モデル失敗（レート制限またはAPIエラー）');
+    return { documentNo: file.getName().replace(/\.pdf$/i, '') };
+  }
+
   try {
-    var fieldList = docType.ocrFields.map(function(f) {
-      return '"' + f.key + '": "' + f.label + '(' + f.type + ')"';
-    }).join(', ');
-    var prompt = 'このPDFから以下の項目を抽出してJSON形式で返してください。\n'
-      + '項目: {' + fieldList + '}\n'
-      + '抽出できない項目は空文字 "" にしてください。'
-      + '数値項目は数値のみ（カンマ・円記号不要）。日付はYYYY/MM/DD形式。\n'
-      + 'JSONのみ返答してください。';
-    var apiKey  = getGeminiApiKey();
-    var pdfB64  = Utilities.base64Encode(file.getBlob().getBytes());
-    var payload = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inlineData: { mimeType: 'application/pdf', data: pdfB64 } }
-        ]
-      }]
-    };
-    var resp = UrlFetchApp.fetch(
-      CONFIG.GEMINI_API_ENDPOINT + CONFIG.GEMINI_PRIMARY_MODEL + ':generateContent?key=' + apiKey,
-      { method:'post', contentType:'application/json', payload:JSON.stringify(payload), muteHttpExceptions:true }
-    );
-    var text = JSON.parse(resp.getContentText()).candidates[0].content.parts[0].text || '{}';
-    text = text.replace(/```json\s*/gi,'').replace(/```/g,'').trim();
+    var text = '';
+    if (result.candidates && result.candidates[0] &&
+        result.candidates[0].content && result.candidates[0].content.parts) {
+      text = result.candidates[0].content.parts[0].text || '';
+    }
+    text = text.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+    if (!text) throw new Error('レスポンスが空です: ' + JSON.stringify(result).substring(0, 300));
     return JSON.parse(text);
-  } catch(e) {
-    Logger.log('[GENERIC OCR ERROR] ' + e.message);
-    return { documentNo: file.getName().replace(/\.pdf$/i,'') };
+  } catch (e) {
+    Logger.log('[GENERIC OCR PARSE ERROR] ' + file.getName() + ': ' + e.message + ' / raw=' + JSON.stringify(result).substring(0, 300));
+    return { documentNo: file.getName().replace(/\.pdf$/i, '') };
   }
 }
 

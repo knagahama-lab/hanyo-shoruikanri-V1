@@ -2393,7 +2393,7 @@ function _renderGenericDocsTable() {
   const statusFlow = dt.statusFlow || [];
   tbody.innerHTML = pageItems.map(function(item) {
     const st = item['ステータス'] || '';
-    const docId = _esc(String(item['書類番号'] || item['見積番号'] || ''));
+    const docId = _esc(String(item['ID'] || ''));
     const stOpts = statusFlow.map(function(s) {
       return '<option value="' + _esc(s) + '"' + (s===st?' selected':'') + '>' + _esc(s) + '</option>';
     }).join('');
