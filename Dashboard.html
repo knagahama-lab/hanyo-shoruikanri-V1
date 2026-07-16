@@ -376,32 +376,24 @@ tr:hover td{background:#f8fafc;}
       <div id="area-quote" style="display:none;">
         <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
           <div class="summary-card"><div class="lbl" id="qs-total-label">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
-          <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
-          <div class="summary-card"><div class="lbl">見積合計金額</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
+          <div class="summary-card"><div class="lbl" id="qs-linked-label">未確認件数</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">合計金額（税込）</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円</div></div>
         </div>
         <div class="filter-bar">
-          <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
-          <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option></select>
-          <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
-          <input type="number" id="qs-amount-search" placeholder="💴 金額・単価で検索" oninput="applyQuoteFilter()" title="見積合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
-          <select id="qs-amount-tol" onchange="applyQuoteFilter()" title="許容誤差"><option value="0">完全一致</option><option value="5">±5%</option><option value="10">±10%</option></select>
-          <select id="qs-sort-key" onchange="setQuoteSort(this.value)" title="並び順の基準" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;">
-            <option value="issueDate">📅 発行日</option>
-            <option value="quoteNo">🔢 見積No.</option>
-            <option value="destCompany">🏢 宛先</option>
-            <option value="quoteAmount">💴 金額</option>
-            <option value="status">🏷️ ステータス</option>
-            <option value="modelCode">⚙️ 機種</option>
-          </select>
-          <button id="qs-sort-dir" onclick="setQuoteSort(document.getElementById('qs-sort-key').value)" title="昇順/降順を切り替え" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
-          <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
-          <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
-          <button class="btn btn-outline btn-sm" onclick="exportQuoteCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
-          <button class="btn btn-outline btn-sm" onclick="exportQuotePdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
+          <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・取引先などで検索..." oninput="_applyAreaQuoteFilter()"></div>
+          <select id="qs-filter-status" onchange="_applyAreaQuoteFilter()"><option value="">すべてのステータス</option></select>
+          <button class="btn btn-outline btn-sm" onclick="_clearAreaQuoteFilter()">クリア</button>
+          <button class="btn btn-outline btn-sm" onclick="_loadAreaQuoteGenericDocs(_areaQuoteDocType && _areaQuoteDocType.id)">🔄</button>
+          <button class="btn btn-outline btn-sm" onclick="_exportAreaQuoteCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2 id="qs-title">見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
-          <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">タブをクリックして読み込んでください</div></div>
+          <div style="overflow-x:auto;">
+            <table>
+              <thead id="qs-thead"></thead>
+              <tbody id="qs-tbody"><tr><td style="text-align:center;padding:32px;color:var(--text-muted);">タブをクリックして読み込んでください</td></tr></tbody>
+            </table>
+          </div>
         </div>
         <div class="pagination" id="qs-pagination"></div>
       </div>

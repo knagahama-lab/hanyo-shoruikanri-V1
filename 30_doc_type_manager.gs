@@ -317,21 +317,28 @@ function _watchGenericDocType(docType, allDocTypes) {
  * PDFの本文テキストに発行元名が含まれているかを判定する。
  * Drive APIのOCR変換（13_ocr_extended.gs の _extractTextFromPdf）で
  * PDFをテキスト化し、その中に supplierName が含まれているかを単純検索する。
- * テキスト抽出に失敗した場合（スキャン画像などでOCRが効かない場合）は
- * 判定不能として true を返し、処理自体は止めない（誤って握りつぶさないため）。
+ *
+ * ★ 2026-07: 以前はテキスト抽出に失敗した場合（判定不能）は true
+ * （＝そのDocTypeが処理してよい）を返していたが、これだと同じ
+ * インポートフォルダを共有する複数DocType（実装費／PCB費／組立費など）が
+ * すべて「一致」と判定してしまい、例えば組立費の見積書が実装費のシートにも
+ * 誤って取り込まれる不具合の原因になっていた。
+ * 判定不能な場合は false（＝処理しない）にして、どのDocTypeにも
+ * 取り込まれずに残すようにする（未取り込みのPDFは _reportUnmatchedGenericDocs
+ * がログで警告するので、手動で振り分けられる）。
  */
 function _pdfMatchesSupplier(file, supplierName) {
   if (!supplierName) return true;
   try {
     var text = _extractTextFromPdf(file);
     if (!text) {
-      Logger.log('[SUPPLIER MATCH] テキスト抽出不可のため判定スキップ: ' + file.getName());
-      return true;
+      Logger.log('[SUPPLIER MATCH] テキスト抽出不可のため未一致扱い（誤混入防止）: ' + file.getName());
+      return false;
     }
     return text.indexOf(supplierName) !== -1;
   } catch(e) {
-    Logger.log('[SUPPLIER MATCH ERROR] ' + e.message);
-    return true;
+    Logger.log('[SUPPLIER MATCH ERROR] ' + e.message + '（未一致扱い・誤混入防止）');
+    return false;
   }
 }
 

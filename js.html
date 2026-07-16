@@ -461,14 +461,19 @@ function quickUpdateOrderType(mgmtId, newType) {
 function normalizeSearchText(str){ return String(str||'').toLowerCase().replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[\u3000]/g, ' '); }
 function loadData() { const container = document.getElementById('table-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res || !res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗</div>'; return; } S.all = res.items || []; S.filtered = S.all.slice(); S.page = 1; _updateSummary(); _renderTable(); }).handleApiRequest('getAll', null); }
 // 実装／PCB／組立タブは、実データが既に入っている汎用書類種別（30_doc_type_manager.gs）を
-// そのまま表示する。以前はmgmt管理シートの新設「書類区分」列でフィルタする独自実装だったが、
-// 実データがまだ無く「該当なし」になってしまうため、サイドバーの書類一覧と同じ仕組みに統一した。
+// 案件一覧ページ内（area-quote）にそのまま埋め込んで表示する。別ページ（page-generic-docs）へ
+// 遷移する実装だと「案件一覧」のタブバーごと消えて分かりにくい・戻れないため、
+// 案件一覧の中で注文書一覧と同じようにタブ切替できるようにしている。
 const _QUOTE_CATEGORY_DOCTYPE_ID = { impl: 'quote_gifu_denshi', pcb: 'quote_pcb', assembly: 'quote_edream' };
 function switchSubTab(tab) {
   var isOrder = tab === 'order';
+  var areaOrder = document.getElementById('area-order'), areaQuote = document.getElementById('area-quote');
   var orderBtn = document.getElementById('subtab-order');
   var tabBtns = { 'quote-impl': document.getElementById('subtab-quote-impl'), 'quote-pcb': document.getElementById('subtab-quote-pcb'), 'quote-assembly': document.getElementById('subtab-quote-assembly') };
-  if (!orderBtn) return;
+  if (!areaOrder || !areaQuote || !orderBtn) return;
+  showPage('list'); // 他ページ（例: page-generic-docs）から来た場合でも必ず案件一覧に戻す
+  areaOrder.style.display = isOrder ? '' : 'none';
+  areaQuote.style.display = isOrder ? 'none' : '';
   orderBtn.style.color = isOrder ? 'var(--primary)' : 'var(--text-sub)';
   orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
   Object.keys(tabBtns).forEach(function(key) {
@@ -477,21 +482,149 @@ function switchSubTab(tab) {
     btn.style.color = active ? 'var(--primary)' : 'var(--text-sub)';
     btn.style.borderBottom = active ? '2px solid var(--primary)' : '2px solid transparent';
   });
-  if (isOrder) {
-    showPage('list');
-    return;
-  }
+  if (isOrder) return;
   var key = tab.replace('quote-', '');
   var docTypeId = _QUOTE_CATEGORY_DOCTYPE_ID[key];
   if (!docTypeId) return;
   if (_genericDocTypes.length === 0) {
     // サイドバー初期化がまだの場合は先に読み込んでから開く
     google.script.run.withSuccessHandler(function(res) {
-      if (res && res.success) { _genericDocTypes = res.docTypes || []; _rebuildGenericDocSidebar(); showGenericDocPage(docTypeId); }
+      if (res && res.success) { _genericDocTypes = res.docTypes || []; _rebuildGenericDocSidebar(); _loadAreaQuoteGenericDocs(docTypeId); }
     }).handleApiRequest('getDocTypes', null);
     return;
   }
-  showGenericDocPage(docTypeId);
+  _loadAreaQuoteGenericDocs(docTypeId);
+}
+
+// ── 案件一覧タブ内で表示する 実装／PCB／組立 見積書一覧（汎用書類データ） ──
+let _areaQuoteDocType = null;
+let _areaQuoteItems = [];
+let _areaQuoteFiltered = [];
+let _areaQuotePage = 1;
+const _areaQuoteLimit = 30;
+
+function _loadAreaQuoteGenericDocs(docTypeId) {
+  if (!docTypeId) return;
+  var dt = _genericDocTypes.find(function(d) { return d.id === docTypeId; });
+  _areaQuoteDocType = dt || null;
+  var titleEl = document.getElementById('qs-title'); if (titleEl) titleEl.textContent = (dt ? dt.name : '見積書') + ' 一覧';
+  var totalLabelEl = document.getElementById('qs-total-label'); if (totalLabelEl) totalLabelEl.textContent = (dt ? dt.name : '見積書') + ' 総件数';
+  var stSel = document.getElementById('qs-filter-status');
+  if (stSel) {
+    stSel.innerHTML = '<option value="">すべてのステータス</option>';
+    (dt && dt.statusFlow || []).forEach(function(s) {
+      var opt = document.createElement('option'); opt.value = s; opt.textContent = s; stSel.appendChild(opt);
+    });
+  }
+  var tbody = document.getElementById('qs-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:32px;color:var(--text-muted);">⏳ 読み込み中...</td></tr>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--danger);">❌ ' + _esc((res && res.error) || '取得失敗') + '</td></tr>';
+        return;
+      }
+      _areaQuoteItems = res.items || [];
+      if (res.docType) _areaQuoteDocType = res.docType;
+      _applyAreaQuoteFilter();
+    })
+    .withFailureHandler(function(err) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:24px;color:var(--danger);">❌ 通信エラー: ' + _esc(err.message) + '</td></tr>';
+    })
+    .handleApiRequest('getGenericDocs', { docTypeId: docTypeId });
+}
+
+function _applyAreaQuoteFilter() {
+  var kwEl = document.getElementById('qs-search'); var kw = kwEl ? normalizeSearchText(kwEl.value) : '';
+  var stEl = document.getElementById('qs-filter-status'); var st = stEl ? stEl.value : '';
+  _areaQuoteFiltered = _areaQuoteItems.filter(function(item) {
+    var mk = !kw || normalizeSearchText(JSON.stringify(item)).indexOf(kw) !== -1;
+    var ms = !st || (item['ステータス'] || '') === st;
+    return mk && ms;
+  });
+  _areaQuotePage = 1;
+  _updateAreaQuoteSummary();
+  _renderAreaQuoteTable();
+}
+function _clearAreaQuoteFilter() {
+  var kwEl = document.getElementById('qs-search'); if (kwEl) kwEl.value = '';
+  var stEl = document.getElementById('qs-filter-status'); if (stEl) stEl.value = '';
+  _applyAreaQuoteFilter();
+}
+function _updateAreaQuoteSummary() {
+  var items = _areaQuoteFiltered;
+  if (document.getElementById('qs-total')) document.getElementById('qs-total').textContent = items.length;
+  var unconfirmed = items.filter(function(it) { return (it['ステータス'] || '') === '未確認'; }).length;
+  if (document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = unconfirmed;
+  var amtSum = items.reduce(function(s, it) {
+    var raw = it['合計金額(税込)']; var n = Number(String(raw == null ? '' : raw).replace(/[^0-9.\-]/g, ''));
+    return s + (isNaN(n) ? 0 : n);
+  }, 0);
+  if (document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = amtSum.toLocaleString();
+}
+function _renderAreaQuoteTable() {
+  var thead = document.getElementById('qs-thead');
+  var tbody = document.getElementById('qs-tbody');
+  var countEl = document.getElementById('qs-count');
+  if (!tbody) return;
+  var dt = _areaQuoteDocType;
+  var fields = (dt && dt.ocrFields || []).slice(0, 9);
+  if (thead) {
+    var hh = '<tr><th style="width:90px;">ステータス</th><th style="width:60px;text-align:center;">PDF</th>';
+    fields.forEach(function(f) { hh += '<th>' + _esc(f.label) + '</th>'; });
+    hh += '</tr>';
+    thead.innerHTML = hh;
+  }
+  var total = _areaQuoteFiltered.length;
+  if (countEl) countEl.textContent = total + ' 件';
+  var start = (_areaQuotePage - 1) * _areaQuoteLimit;
+  var pageItems = _areaQuoteFiltered.slice(start, start + _areaQuoteLimit);
+  if (pageItems.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="' + (fields.length + 2) + '" style="text-align:center;padding:32px;color:var(--text-muted);">該当なし</td></tr>';
+    _renderAreaQuotePagination(total);
+    return;
+  }
+  var statusFlow = (dt && dt.statusFlow) || [];
+  tbody.innerHTML = pageItems.map(function(item) {
+    var st = item['ステータス'] || '';
+    var docId = _esc(String(item['ID'] || ''));
+    var stOpts = statusFlow.map(function(s) { return '<option value="' + _esc(s) + '"' + (s === st ? ' selected' : '') + '>' + _esc(s) + '</option>'; }).join('');
+    var html = '<tr>';
+    html += statusFlow.length > 0
+      ? '<td><select style="font-size:11px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;cursor:pointer;" onchange="updateGenericDocStatus(\'' + docId + '\',this.value)">' + stOpts + '</select></td>'
+      : '<td><span style="font-size:11px;color:var(--text-muted);">—</span></td>';
+    var pdfUrl = item['PDFリンク'] || item['PDF'] || '';
+    html += '<td style="text-align:center;">' + (pdfUrl ? '<a href="' + _esc(pdfUrl) + '" target="_blank" style="font-size:18px;text-decoration:none;">📄</a>' : '—') + '</td>';
+    fields.forEach(function(f) {
+      var v = item[f.label] !== undefined ? item[f.label] : '—';
+      html += '<td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(String(v)) + '</td>';
+    });
+    html += '</tr>';
+    return html;
+  }).join('');
+  _renderAreaQuotePagination(total);
+}
+function _renderAreaQuotePagination(total) {
+  var el = document.getElementById('qs-pagination');
+  if (!el) return;
+  var pages = Math.ceil(total / _areaQuoteLimit);
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  var html = '';
+  for (var i = 1; i <= Math.min(pages, 30); i++) {
+    html += '<button class="page-btn' + (i === _areaQuotePage ? ' active' : '') + '" onclick="_goAreaQuotePage(' + i + ')">' + i + '</button>';
+  }
+  el.innerHTML = html;
+}
+function _goAreaQuotePage(p) { _areaQuotePage = p; _renderAreaQuoteTable(); }
+function _exportAreaQuoteCsv() {
+  if (_areaQuoteFiltered.length === 0) { showToast('エクスポートするデータがありません', true); return; }
+  var dt = _areaQuoteDocType;
+  var fields = (dt && dt.ocrFields || []);
+  var headers = ['ステータス'].concat(fields.map(function(f) { return f.label; })).concat(['PDFリンク']);
+  var rows = _areaQuoteFiltered.map(function(item) {
+    return [item['ステータス'] || ''].concat(fields.map(function(f) { return item[f.label] || ''; })).concat([item['PDFリンク'] || '']);
+  });
+  _downloadCsv((dt ? dt.name : '見積書') + '_' + _today() + '.csv', headers, rows);
 }
 function _updateSummary() { const now = new Date(); const ym = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0'); if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent = S.all.filter(r=>r.status==='送信済み').length; if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領' || r.status==='受注済み').length; if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent = S.all.filter(r=>r.status==='納品済み').length; if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0).toLocaleString(); }
 function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','受注済み':'received','納品済み':'done','キャンセル':'planned'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
@@ -679,7 +812,17 @@ function _updateQuoteSummary() {
   if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = scoped.filter(r => r.linked).length;
   if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = scoped.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
 }
-function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _quotePage = 1; applyQuoteFilter(); }).handleApiRequest('quoteListGetAll', null); }
+function loadQuoteList() {
+  // ★ _allQuotes は見積書一覧タブ以外に、注文書↔見積書の紐づけ・AI照合などでも使われるため、
+  // 表示先(quotelist-container)の有無に関わらず常にデータだけは取得・マージする。
+  google.script.run.withSuccessHandler(res => {
+    if (!res.success) { showToast('見積データの取得に失敗しました: ' + res.error, true); return; }
+    _allQuotes = res.items || [];
+    if (typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes();
+    _quotePage = 1;
+    applyQuoteFilter();
+  }).handleApiRequest('quoteListGetAll', null);
+}
 function _mergeLedgerIntoQuotes() {
   if (!_allLedgerItems || _allLedgerItems.length === 0) return;
   // 既存の見積No.セットと既にマージ済みの台帳IDセット（重複防止）
@@ -744,6 +887,10 @@ function applyQuoteFilter() {
 function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; applyQuoteFilter(); }
 
 function _renderQuoteTable() {
+  // ★ 見積書一覧タブは実装/PCB/組立タブ（_renderAreaQuoteTable）に統合されたため、
+  // このテーブルの描画先(quotelist-container)は現在DOMに存在しない。
+  // _allQuotes 自体は紐づけ・AI照合など他機能で使われ続けるため、描画だけスキップする。
+  if (!document.getElementById('quotelist-container')) return;
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
   const start = (_quotePage - 1) * _quoteLimit; const data  = _filteredQuotes.slice(start, start + _quoteLimit); const total = _filteredQuotes.length;
   if(document.getElementById('qs-count')) document.getElementById('qs-count').textContent = total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
