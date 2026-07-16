@@ -460,14 +460,15 @@ function quickUpdateOrderType(mgmtId, newType) {
 // ── 案件一覧 ──
 function normalizeSearchText(str){ return String(str||'').toLowerCase().replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[\u3000]/g, ' '); }
 function loadData() { const container = document.getElementById('table-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res || !res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗</div>'; return; } S.all = res.items || []; S.filtered = S.all.slice(); S.page = 1; _updateSummary(); _renderTable(); }).handleApiRequest('getAll', null); }
+// 実装／PCB／組立タブは、実データが既に入っている汎用書類種別（30_doc_type_manager.gs）を
+// そのまま表示する。以前はmgmt管理シートの新設「書類区分」列でフィルタする独自実装だったが、
+// 実データがまだ無く「該当なし」になってしまうため、サイドバーの書類一覧と同じ仕組みに統一した。
+const _QUOTE_CATEGORY_DOCTYPE_ID = { impl: 'quote_gifu_denshi', pcb: 'quote_pcb', assembly: 'quote_edream' };
 function switchSubTab(tab) {
   var isOrder = tab === 'order';
-  var areaOrder = document.getElementById('area-order'), areaQuote = document.getElementById('area-quote');
   var orderBtn = document.getElementById('subtab-order');
   var tabBtns = { 'quote-impl': document.getElementById('subtab-quote-impl'), 'quote-pcb': document.getElementById('subtab-quote-pcb'), 'quote-assembly': document.getElementById('subtab-quote-assembly') };
-  if (!areaOrder || !areaQuote || !orderBtn) return;
-  areaOrder.style.display = isOrder ? '' : 'none';
-  areaQuote.style.display = isOrder ? 'none' : '';
+  if (!orderBtn) return;
   orderBtn.style.color = isOrder ? 'var(--primary)' : 'var(--text-sub)';
   orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
   Object.keys(tabBtns).forEach(function(key) {
@@ -476,12 +477,21 @@ function switchSubTab(tab) {
     btn.style.color = active ? 'var(--primary)' : 'var(--text-sub)';
     btn.style.borderBottom = active ? '2px solid var(--primary)' : '2px solid transparent';
   });
-  if (!isOrder) {
-    _quoteSubTab = tab.replace('quote-', '');
-    var titleEl = document.getElementById('qs-title'); if (titleEl) titleEl.textContent = _QUOTE_CATEGORY_TITLES[_quoteSubTab] || '見積書一覧';
-    var totalLabelEl = document.getElementById('qs-total-label'); if (totalLabelEl) totalLabelEl.textContent = (_QUOTE_CATEGORY_TITLES[_quoteSubTab] || '見積書') + ' 総件数';
-    if (_allQuotes.length === 0) loadQuoteList(); else applyQuoteFilter();
+  if (isOrder) {
+    showPage('list');
+    return;
   }
+  var key = tab.replace('quote-', '');
+  var docTypeId = _QUOTE_CATEGORY_DOCTYPE_ID[key];
+  if (!docTypeId) return;
+  if (_genericDocTypes.length === 0) {
+    // サイドバー初期化がまだの場合は先に読み込んでから開く
+    google.script.run.withSuccessHandler(function(res) {
+      if (res && res.success) { _genericDocTypes = res.docTypes || []; _rebuildGenericDocSidebar(); showGenericDocPage(docTypeId); }
+    }).handleApiRequest('getDocTypes', null);
+    return;
+  }
+  showGenericDocPage(docTypeId);
 }
 function _updateSummary() { const now = new Date(); const ym = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0'); if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent = S.all.filter(r=>r.status==='送信済み').length; if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領' || r.status==='受注済み').length; if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent = S.all.filter(r=>r.status==='納品済み').length; if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0).toLocaleString(); }
 function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','受注済み':'received','納品済み':'done','キャンセル':'planned'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
@@ -2277,10 +2287,13 @@ function _initGenericDocSidebar() {
     .handleApiRequest('getDocTypes', null);
 }
 
+// 実装／PCB／組立の3種は「案件一覧」上部タブから開くため、サイドバーには表示しない
+const _SIDEBAR_HIDDEN_DOCTYPE_IDS = ['quote_gifu_denshi', 'quote_pcb', 'quote_edream'];
 function _rebuildGenericDocSidebar() {
   document.querySelectorAll('.nav-item[data-gendoc]').forEach(function(el) { el.remove(); });
   document.querySelectorAll('.sidebar-section-label[data-gendoc-section]').forEach(function(el) { el.remove(); });
-  if (_genericDocTypes.length === 0) return;
+  const sidebarTypes = _genericDocTypes.filter(function(dt) { return _SIDEBAR_HIDDEN_DOCTYPE_IDS.indexOf(dt.id) === -1; });
+  if (sidebarTypes.length === 0) return;
   const nav = document.getElementById('sidebar-nav-container');
   if (!nav) return;
   const sectionEl = document.createElement('div');
@@ -2288,7 +2301,7 @@ function _rebuildGenericDocSidebar() {
   sectionEl.setAttribute('data-gendoc-section', '1');
   sectionEl.textContent = '書類管理';
   nav.appendChild(sectionEl);
-  _genericDocTypes.forEach(function(dt) {
+  sidebarTypes.forEach(function(dt) {
     const item = document.createElement('div');
     item.className = 'nav-item';
     item.setAttribute('data-id', 'gendoc_' + dt.id);
@@ -2356,9 +2369,9 @@ function _buildGenericDocTableHeader(dt) {
   const thead = document.getElementById('gdoc-thead');
   if (!thead) return;
   const fields = (dt.ocrFields || []).slice(0, 9);
-  let html = '<tr><th style="width:90px;">ステータス</th>';
+  let html = '<tr><th style="width:90px;">ステータス</th><th style="width:60px;text-align:center;">PDF</th>';
   fields.forEach(function(f) { html += '<th>' + _esc(f.label) + '</th>'; });
-  html += '<th style="width:60px;text-align:center;">PDF</th></tr>';
+  html += '</tr>';
   thead.innerHTML = html;
 }
 
@@ -2403,12 +2416,12 @@ function _renderGenericDocsTable() {
     } else {
       html += '<td><span style="font-size:11px;color:var(--text-muted);">—</span></td>';
     }
+    const pdfUrl = item['PDFリンク'] || item['PDF'] || '';
+    html += '<td style="text-align:center;">' + (pdfUrl ? '<a href="' + _esc(pdfUrl) + '" target="_blank" style="font-size:18px;text-decoration:none;">📄</a>' : '—') + '</td>';
     fields.forEach(function(f) {
       const v = item[f.label] !== undefined ? item[f.label] : '—';
       html += '<td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + _esc(String(v)) + '</td>';
     });
-    const pdfUrl = item['PDFリンク'] || item['PDF'] || '';
-    html += '<td style="text-align:center;">' + (pdfUrl ? '<a href="' + _esc(pdfUrl) + '" target="_blank" style="font-size:18px;text-decoration:none;">📄</a>' : '—') + '</td>';
     html += '</tr>';
     return html;
   }).join('');
