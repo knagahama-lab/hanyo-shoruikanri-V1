@@ -23,6 +23,10 @@
 //   ],
 //   statusFlow: ["未確認","確認中","承認済み","却下"],  // ステータス選択肢
 //   autoLink:   false,  // 自動紐づけ（AI）の使用
+//   classifyKeywords: "イードリーム,eDream",  // ※他の種別と同じインポートフォルダを共有する場合のみ使用。
+//                                             //   OCRで判定した発行元会社名にこのキーワード（カンマ区切り、
+//                                             //   いずれか1つでも部分一致）が含まれていればこの種別と判定する。
+//                                             //   管理コンソール「書類種別管理」の編集画面で設定できる。
 // }
 // ============================================================
 
@@ -97,6 +101,7 @@ function _getDefaultDocTypes() {
       color: '#b45309',
       supplier: '岐阜電子工業',
       costCategory: '実装費',
+      classifyKeywords: '岐阜電子工業',
       ocrFields: [
         { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
         { key:'issueDate',    label:'発行日',        type:'date',   required:false },
@@ -125,6 +130,7 @@ function _getDefaultDocTypes() {
       color: '#0891b2',
       supplier: 'イードリーム',
       costCategory: '組立費',
+      classifyKeywords: 'イードリーム,eDream',
       ocrFields: [
         { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
         { key:'issueDate',    label:'発行日',        type:'date',   required:false },
@@ -153,6 +159,7 @@ function _getDefaultDocTypes() {
       color: '#15803d',
       supplier: 'PCB業者',
       costCategory: 'PCB費',
+      classifyKeywords: '', // 実際のPCB仕入先の会社名を管理コンソールで設定してください
       ocrFields: [
         { key:'documentNo',   label:'見積番号',     type:'text',   required:true  },
         { key:'issueDate',    label:'発行日',        type:'date',   required:false },
@@ -226,39 +233,153 @@ function _getDefaultDocTypes() {
 function processGenericDocTypes() {
   var docTypes = getAllDocTypes().filter(function(d) { return d.enabled && d.importFolderId; });
   var total = 0;
+
+  // 同じインポートフォルダIDを使っている種別ごとにグループ化する。
+  // 1種別だけのフォルダは従来通りそのまま処理し、
+  // 複数種別が同じフォルダを共有している場合はOCRで発行元を判定して振り分ける。
+  var byFolder = {};
   docTypes.forEach(function(dt) {
+    var key = dt.importFolderId;
+    if (!byFolder[key]) byFolder[key] = [];
+    byFolder[key].push(dt);
+  });
+
+  Object.keys(byFolder).forEach(function(folderId) {
+    var group = byFolder[folderId];
     try {
-      total += _watchGenericDocType(dt, docTypes);
+      if (group.length === 1) {
+        total += _watchGenericDocType(group[0]);
+      } else {
+        total += _watchSharedGenericFolder(folderId, group);
+      }
     } catch(e) {
-      Logger.log('[GENERIC WATCH ERROR] ' + dt.name + ': ' + e.message);
+      Logger.log('[GENERIC WATCH ERROR] folder=' + folderId + ': ' + e.message);
     }
   });
-  try { _reportUnmatchedGenericDocs(docTypes); } catch(e) { Logger.log('[GENERIC WATCH] 未判定チェックエラー: ' + e.message); }
+
   return total;
 }
 
 /**
- * 汎用DocTypeのフォルダ監視・OCR処理
+ * 複数のDocTypeが同じインポートフォルダを共有している場合の監視処理。
+ * OCRでPDFの発行元会社名を抽出し、各種別に設定された classifyKeywords
+ * （カンマ区切り、部分一致）と照合して振り分け先の種別を決定する。
+ * 判定できなかったファイルは処理済みにせず、次回以降の実行で再試行する
+ * （手動で classifyKeywords を追加・修正すれば自動的に拾われる）。
  *
- * 【発行元による自動振り分けについて】
- * 複数のDocTypeが同じインポートフォルダ（importFolderId）を共有している場合、
- * docType.supplier（発行元名。例:"岐阜電子工業"）を使ってPDFの本文を照合し、
- * 一致したDocTypeだけがそのファイルを処理・転記する。一致しないファイルは
- * スキップし（未処理のまま残す）、フォルダを共有している他のDocTypeの判定に委ねる。
- * これにより、1つの共有インボックスフォルダに複数の発行元の見積書が混在していても、
- * それぞれ正しいシート・保存先フォルダへ自動的に分別される。
- *
- * @param {object} docType         処理対象のDocType
- * @param {object[]} [allDocTypes] 同じフォルダを共有している可能性のある他の有効DocType一覧
- *                                 （processGenericDocTypes から渡される。単体テスト実行時は省略可）
+ * ★ 2026-07: 以前は docType.supplier を使い、PDF本文テキストに発行元名の
+ * 文字列が含まれるかどうかで判定していたが、(1) 管理コンソールの編集画面に
+ * supplier欄が無く、フォルダ設定などを保存し直すたびに supplier が消えて
+ * 判定が機能しなくなる、(2) テキスト抽出に失敗した場合の挙動が曖昧、という
+ * 2つの問題があった。ここでは常にGeminiで発行元会社名を明示的に抽出し、
+ * 管理コンソールで編集できる classifyKeywords と照合する方式に統一した。
  */
-function _watchGenericDocType(docType, allDocTypes) {
+function _watchSharedGenericFolder(folderId, docTypes) {
   var processedIds = _getProcessedFileIds();
   var count = 0;
-  // 同じインポートフォルダを共有している「発行元判定つき」の他のDocTypeがあるか
-  var sharesFolderWithOthers = (allDocTypes || []).some(function(d) {
-    return d.id !== docType.id && d.importFolderId === docType.importFolderId && d.supplier;
-  });
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    var files  = folder.getFilesByType(MimeType.PDF);
+    while (files.hasNext()) {
+      var file   = files.next();
+      var fileId = file.getId();
+      if (processedIds[fileId]) {
+        Logger.log('[GENERIC WATCH-SHARED] スキップ（処理済み）: ' + file.getName());
+        _moveToProcessedSubfolder(file, folder, '');
+        continue;
+      }
+      Logger.log('[GENERIC WATCH-SHARED] 分類開始: ' + file.getName());
+      try {
+        var issuer  = _classifyGenericDocIssuer(file);
+        var matched = docTypes.filter(function(dt) {
+          var kws = String(dt.classifyKeywords || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+          return kws.some(function(kw) { return issuer.indexOf(kw) >= 0; });
+        })[0];
+
+        if (!matched) {
+          Logger.log('[GENERIC WATCH-SHARED] 分類不能: ' + file.getName() + '（抽出した発行元: "' + issuer + '"）。'
+            + '種別の「分類キーワード」設定を見直してください。次回実行時に再試行します。');
+          try { _logOcrResult(file.getName(), 'classify_failed', null, '発行元を判定できませんでした: ' + issuer); } catch(e2) {}
+          continue; // 未処理のまま残す（processedIdsに入れない）
+        }
+        Logger.log('[GENERIC WATCH-SHARED] 判定: ' + file.getName() + ' → 種別「' + matched.name + '」（発行元: "' + issuer + '"）');
+
+        var ocrResult = _extractGenericDocOcr(file, matched);
+
+        var saveFolder = matched.saveFolderId
+          ? DriveApp.getFolderById(matched.saveFolderId)
+          : folder;
+        var newName   = nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
+        var savedFile = file.makeCopy(newName, saveFolder);
+        var pdfUrl    = savedFile.getUrl();
+
+        _saveGenericDocToSheet(matched, ocrResult, pdfUrl, file.getName());
+
+        _markFileAsProcessed(fileId);
+        _moveToProcessedSubfolder(file, folder, matched.processedFolderId);
+        count++;
+        Logger.log('[GENERIC WATCH-SHARED] 完了: ' + file.getName() + ' → ' + matched.sheetName);
+        Utilities.sleep(2000);
+      } catch(fileErr) {
+        Logger.log('[GENERIC WATCH-SHARED FILE ERROR] ' + file.getName() + ': ' + fileErr.message);
+        // 分類/OCR自体が例外で失敗した場合は無限リトライを避けるため処理済み扱いにする
+        _markFileAsProcessed(fileId);
+      }
+    }
+  } catch(folderErr) {
+    Logger.log('[GENERIC WATCH-SHARED FOLDER ERROR] folder=' + folderId + ': ' + folderErr.message);
+  }
+  return count;
+}
+
+/**
+ * PDFの発行元会社名をOCRで抽出する（振り分け判定専用の軽量呼び出し）。
+ * 宛先（御中/様）ではなく、書類を作成・発行した側の会社名を返す。
+ * レート制限に強い _callGeminiApi()（複数キー・自動リトライ対応）を使用する。
+ */
+function _classifyGenericDocIssuer(file) {
+  var prompt = 'このPDF（見積書などの書類）の発行元会社名を1つだけ抽出してください。\n'
+    + '発行元とは、この書類を作成して相手先へ提出した会社（通常は書類の右上や末尾付近に、住所・電話番号などと一緒に記載されている会社）です。\n'
+    + '宛先（「御中」「様」と書かれている、書類を受け取る側の会社）は発行元ではないので絶対に含めないでください。\n'
+    + '該当が見つからない場合は空文字にしてください。\n'
+    + 'JSON形式 {"issuer": "会社名"} のみで返答してください。';
+  var pdfB64 = Utilities.base64Encode(file.getBlob().getBytes());
+  var body = {
+    contents: [{
+      parts: [
+        { text: prompt },
+        { inline_data: { mime_type: 'application/pdf', data: pdfB64 } }
+      ]
+    }],
+    generationConfig: { temperature: 0.1, responseMimeType: 'application/json' }
+  };
+  var result = _callGeminiApi(CONFIG.GEMINI_PRIMARY_MODEL, body);
+  if (!result) result = _callGeminiApi(CONFIG.GEMINI_FALLBACK_MODEL, body);
+  if (!result) {
+    Logger.log('[GENERIC CLASSIFY ERROR] ' + file.getName() + ': 全モデル失敗');
+    return '';
+  }
+  try {
+    var text = '';
+    if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts) {
+      text = result.candidates[0].content.parts[0].text || '';
+    }
+    text = text.replace(/```json\s*/gi,'').replace(/```/g,'').trim();
+    if (!text) return '';
+    var parsed = JSON.parse(text);
+    return String(parsed.issuer || '').trim();
+  } catch(e) {
+    Logger.log('[GENERIC CLASSIFY PARSE ERROR] ' + file.getName() + ': ' + e.message);
+    return '';
+  }
+}
+
+/**
+ * 汎用DocTypeのフォルダ監視・OCR処理（他の種別とインポートフォルダを共有していない場合）
+ */
+function _watchGenericDocType(docType) {
+  var processedIds = _getProcessedFileIds();
+  var count = 0;
   try {
     var folder = DriveApp.getFolderById(docType.importFolderId);
     var files   = folder.getFilesByType(MimeType.PDF);
@@ -270,17 +391,6 @@ function _watchGenericDocType(docType, allDocTypes) {
         _moveToProcessedSubfolder(file, folder, docType.processedFolderId);
         continue;
       }
-
-      // 発行元による分別（他のDocTypeとフォルダを共有していて、この種別に発行元名が設定されている場合のみ判定）
-      if (sharesFolderWithOthers && docType.supplier) {
-        var isMatch = _pdfMatchesSupplier(file, docType.supplier);
-        if (!isMatch) {
-          Logger.log('[GENERIC WATCH] 発行元不一致のためスキップ: ' + file.getName() + ' → [' + docType.name + '] ではない');
-          continue; // 未処理のまま残し、他のDocTypeの判定に委ねる
-        }
-        Logger.log('[GENERIC WATCH] 発行元一致: ' + file.getName() + ' → [' + docType.name + ']');
-      }
-
       Logger.log('[GENERIC WATCH] 処理開始: ' + file.getName() + ' [' + docType.name + ']');
       try {
         // OCR実行（フィールド定義をプロンプトに反映）
@@ -311,63 +421,6 @@ function _watchGenericDocType(docType, allDocTypes) {
     Logger.log('[GENERIC WATCH FOLDER ERROR] ' + docType.name + ': ' + folderErr.message);
   }
   return count;
-}
-
-/**
- * PDFの本文テキストに発行元名が含まれているかを判定する。
- * Drive APIのOCR変換（13_ocr_extended.gs の _extractTextFromPdf）で
- * PDFをテキスト化し、その中に supplierName が含まれているかを単純検索する。
- *
- * ★ 2026-07: 以前はテキスト抽出に失敗した場合（判定不能）は true
- * （＝そのDocTypeが処理してよい）を返していたが、これだと同じ
- * インポートフォルダを共有する複数DocType（実装費／PCB費／組立費など）が
- * すべて「一致」と判定してしまい、例えば組立費の見積書が実装費のシートにも
- * 誤って取り込まれる不具合の原因になっていた。
- * 判定不能な場合は false（＝処理しない）にして、どのDocTypeにも
- * 取り込まれずに残すようにする（未取り込みのPDFは _reportUnmatchedGenericDocs
- * がログで警告するので、手動で振り分けられる）。
- */
-function _pdfMatchesSupplier(file, supplierName) {
-  if (!supplierName) return true;
-  try {
-    var text = _extractTextFromPdf(file);
-    if (!text) {
-      Logger.log('[SUPPLIER MATCH] テキスト抽出不可のため未一致扱い（誤混入防止）: ' + file.getName());
-      return false;
-    }
-    return text.indexOf(supplierName) !== -1;
-  } catch(e) {
-    Logger.log('[SUPPLIER MATCH ERROR] ' + e.message + '（未一致扱い・誤混入防止）');
-    return false;
-  }
-}
-
-/**
- * 発行元が判定できず、どのDocTypeにも処理されなかったPDFをログに警告として出力する。
- * （フォルダを共有しているDocType同士が対象。手動での振り分け・supplier名の見直しを促す）
- */
-function _reportUnmatchedGenericDocs(docTypes) {
-  var processedIds = _getProcessedFileIds();
-  var byFolder = {};
-  (docTypes || []).forEach(function(dt) {
-    if (!dt.supplier) return;
-    (byFolder[dt.importFolderId] = byFolder[dt.importFolderId] || []).push(dt);
-  });
-  Object.keys(byFolder).forEach(function(folderId) {
-    if (byFolder[folderId].length < 2) return; // 共有していないフォルダはチェック不要
-    try {
-      var folder = DriveApp.getFolderById(folderId);
-      var files  = folder.getFilesByType(MimeType.PDF);
-      var names  = byFolder[folderId].map(function(d) { return d.name; }).join(' / ');
-      while (files.hasNext()) {
-        var file = files.next();
-        if (processedIds[file.getId()]) continue;
-        Logger.log('[GENERIC WATCH] ⚠️ 発行元未判定のまま残存: "' + file.getName() + '"（候補: ' + names + '）→ 手動で振り分けるか、docType.supplier の表記を見直してください');
-      }
-    } catch(e) {
-      Logger.log('[GENERIC WATCH] 未判定チェック失敗（folderId=' + folderId + '）: ' + e.message);
-    }
-  });
 }
 
 /**
